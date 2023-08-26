@@ -6,8 +6,8 @@
 
 MEMVAR oDp
 
-FUNCTION INSERTINTO(cTable,oOdbc)
-RETURN TINSERTINTO():New(cTable,oOdbc)
+FUNCTION INSERTINTO(cTable,oOdbc,nInsert)
+RETURN TINSERTINTO():New(cTable,oOdbc,nInsert)
 
 
 CLASS TINSERTINTO
@@ -19,11 +19,15 @@ CLASS TINSERTINTO
    DATA   cTable,cInsert,lEnd
    DATA   aFields
 
+   DATA  aFieldsN INIT {} // Campos Numericos, su valor sera CERO Para evitar valores NULL
+
+   DATA aDefault INIT {}  // 25/08/2023 Asume valores por Defecto
    DATA lFileLog INIT .F. // 25/08/2023
    DATA lAuditar INIT .F. // 25/08/2023
 
-   METHOD New( cTable ) CONSTRUCTOR
-   METHOD AppendBlank() INLINE NIL
+   METHOD New( cTable,oOdbc,nInsert ) CONSTRUCTOR
+   METHOD SetDefault()  INLINE ::aDefault:=EJECUTAR("GETDEFAULT",::cTable) //25/08/2023
+   METHOD AppendBlank() // INLINE NIL
    METHOD Replace(cField , uValue)
    METHOD FieldPos(cField)
    METHOD Commit()
@@ -38,7 +42,7 @@ ENDCLASS
 
 //----------------------------------------------------------------------------//
 
-METHOD New( cTable, oODBC ) CLASS TINSERTINTO
+METHOD New( cTable, oODBC,nInsert ) CLASS TINSERTINTO
 
    LOCAL oTable,I
 
@@ -46,11 +50,12 @@ METHOD New( cTable, oODBC ) CLASS TINSERTINTO
 
    ::aFields:=ACLONE(oTable:aFields)
 
-   DEFAULT oODBC:=oTable:oOdbc
+   DEFAULT oODBC  :=oTable:oOdbc ,;
+           nInsert:=1
 
    ::oOdbc  :=oODBC   // oTable:oOdbc
    ::cTable :=oTable:cTable
-   ::nInsert:=1
+   ::nInsert:=nInsert  // Cantidad de Registros el Bloque
    ::nCount :=0
    ::cInsert:=""
    ::lEnd   :=.F.
@@ -66,6 +71,12 @@ METHOD New( cTable, oODBC ) CLASS TINSERTINTO
           ENDDO
       NEXT
    ENDIF
+
+   FOR I=1 TO LEN(::aFields)
+      IF ::aFields[I,2]="N"
+        AADD(::aFieldsN,::aFields[I,1]) // campos numéricos
+      ENDIF
+   NEXT I
 
    // ? LEN(::aFields)
    // ? LEN(::aFields[1])
@@ -89,6 +100,30 @@ METHOD Replace( cField, uValue ) CLASS TINSERTINTO
        ::aFields[nAt,10]:=uValue
     ENDIF
 RETURN nAt>0
+
+/*
+// Asume los Valores por Defecto
+*/
+METHOD AppendBlank() CLASS TINSERTINTO
+ LOCAL I,uValue
+
+ FOR I=1 TO LEN(::aFieldsN)
+   ::Replace(::aFieldsN[I],0)
+ NEXT I
+
+ FOR I=1 TO LEN(::aDefault)
+
+    uValue:=::aDefault[I,2]
+
+    IF LEFT(uValue,1)="&"
+      uValue:=MACROEJE(uValue)
+    ENDIF
+
+    ::Replace(::aDefault[I,1],uValue)
+
+ NEXT I
+
+RETURN .T.
 
 /*
 // Ejecuta Comando SQL sobre el Dsn 25/08/2023
