@@ -83,6 +83,8 @@ METHOD New( cTable, oODBC,nInsert ) CLASS TINSERTINTO
 
    AEVAL(::aFields,{|a,n| AADD(::aFields[n],NIL) , ::aFields[n,10]:=NIL })
 
+   ::SetDefault()
+
 RETURN  SELF
 
 METHOD FieldPos( cField, uValue ) CLASS TINSERTINTO
