@@ -54,6 +54,8 @@ CLASS Ttable
    DATA   aFieldsTable INIT {} // Campos exclusivos de la Tabla
    DATA   aTotales INIT {}
 
+   DATA   aDefault INIT {}
+
    DATA   cTable
    DATA   cFileName
    DATA   cWhere    // Condicion del Enlace entre tablas
@@ -61,6 +63,7 @@ CLASS Ttable
    DATA   cPrimary
    DATA   cFieldOrder // permite establecer Orden
    DATA   cField_Order INIT "" // Orden segun ::Sort()
+   DATA   cKeyAudita   INIT "" // Clave para Generar las Pistas de Auditoria, por defecto Asume ORDER BY
 
    DATA   cName       // Nombre del Campo
    DATA   cError
@@ -75,6 +78,8 @@ CLASS Ttable
    DATA   lFromCursor
    DATA   lDesc         INIT .F. // Orden según ::Sort()
 
+   DATA   lDicc         INIT .F. // 28/04/2023 Depende del Diccionario de Datos
+
    DATA   lAppend
    DATA   lAutomatic  // Modo de Asignación de Valores
    DATA   lFound
@@ -85,7 +90,7 @@ CLASS Ttable
    DATA   lIsDef
    DATA   lMySqlNativo
    DATA   lReloadData // Luego que Incluye requiere Recargar
-   DATA   lLock  INIT .F.
+   DATA   lLock          INIT .F.
    DATA   lSetFieldDef   INIT .T.
    DATA   lLower         INIT .F.
    DATA   lCreaRegIntRef INIT .F. // Crear Registros de Integridad Referencial en Commit, clase TDPEDIT debe ejecutarlo en LOAD y por esto debe asigar .f. a DATA lCreaRegIntRef
@@ -93,6 +98,8 @@ CLASS Ttable
    DATA   lUpdate        INIT .F. // Si append() es modificar su valor sera .t. y agrega Where en COMMIT
    DATA   lRemote        INIT .F. // Indica la Tabla tiene conexion Remota
    DATA   lMsgError      INIT .F. // Mostrar Error en ONEROR
+   DATA   lAuditar       INIT .T. // Aplica Pista de Auditoria, importar datos en excel generará incidencias  // programa auditaelimod
+   DATA   lFileLog       INIT .T. // Guardar LOG en archivo en TEMP\ mediante programa COMMIT
 
    DATA   lSET_FOREIGN   INIT .T.
    // DATA   lSetForeignkeyOff INIT .F.
@@ -194,7 +201,7 @@ CLASS Ttable
    // Determina la Siguiente/Anterior Clave
    METHOD GetNext(cField,uValue,lMax)
    METHOD GetPrev(cField,uValue,lMax) INLINE ::GetNext(cField,uValue,.F.)
-   METHOD CTODBF(cFile,cRdd)
+   METHOD CTODBF(cFileDbf,cRdd,oMeter,oSay,cError,lCreate,cFieldIndex)
    METHOD CTOHTML(cFile) INLINE EJECUTAR("TABLETOHTML",Self,cFile)
    METHOD GETWHERERECORD(cFields,lAll) INLINE (::cWhereRecord:=EJECUTAR("GETWHERERECORD",SELF,cFields,lAll))
 
@@ -387,7 +394,13 @@ METHOD New( oCursor,cSql,oOdbc,cTable,nOption,cPrimary,lCheck,lLimit,lLower  ) C
   ::cTable   :=IIF(" " $::cTable,LEFT(::cTable,AT(" " ,::cTable)),::cTable)
   ::cTable   :=IIF(CRLF$::cTable,LEFT(::cTable,AT(CRLF,::cTable)),::cTable)
   ::cTable   :=STRTRAN(::cTable,"(","")
+  ::cTable   :=ALLTRIM(::cTable) // 25/08/2023
 
+
+  // 25/08/2023, Evitar caida por recursividad
+  IF !Empty(oDp:aDefault)
+     ::aDefault:=EJECUTAR("GETDEFAULT",::cTable) //25/08/2023
+  ENDIF
 
   IF oOdbc:ClassName()="TODBC"
 
@@ -1662,6 +1675,8 @@ RETURN nAt>0
 */
 METHOD AppendBlank() CLASS TTable
 
+   LOCAL I,uValue
+
    ::lAppend:=.t.
    ::lUpdate:=.F. // JN 21/06/2018
 
@@ -1672,6 +1687,19 @@ METHOD AppendBlank() CLASS TTable
 //  ? ValType(::aFields),::cSql
 //  ::aRecord:=ARRAY(Len(::aFields))
   AEVAL(::aFields,{|a,i|::aRecord[I]:=CTOEMPTY(NIL,::aFields[I,2],::aFields[I,3])})
+
+  // 25/08/2023
+  FOR I=1 TO LEN(::aDefault)
+
+    uValue:=::aDefault[I,2]
+
+    IF LEFT(uValue,1)="&"
+      uValue:=MACROEJE(uValue)
+    ENDIF
+
+    ::Replace(::aDefault[I,1],uValue)
+
+  NEXT I
 
 RETURN NIL
 
@@ -1777,15 +1805,14 @@ METHOD FieldGet(nPos) CLASS Ttable
       RETURN NIL
    ENDIF
 
-
    IF nPos>0 .AND. nPos>LEN(::aBuffers)
 
       DEFAULT ::cDpXbaseLine:=""
 
       MensajeErr("Posicion "+LSTR(nPos)+" supera Posición Method FieldGet CLASS TTABLE"+CRLF+GETPROCE(),"DpXbase:" +::cDpXbaseLine)
+
       RETURN NIL
    ENDIF
-
 
 RETURN IIF( nPos>0 , ::aBuffers[nPos,1] , NIL )
 
@@ -1824,7 +1851,7 @@ METHOD GetDataKey(nOrder,cKey) CLASS TTable // JN
       FOR I := 1 TO LEN(aKeys)
         nAt   :=::FieldPos(aKeys[I])
         IF nAt=0
-          MsgAlert("Campo "+aKeys[I]+" No existe")
+          MensajeErr("Campo "+aKeys[I]+" No existe")
           RETURN uValue
         ENDIF
         // ? nAt,aKeys[I]
@@ -2132,7 +2159,7 @@ METHOD Commit( cWhere , lReload , lJoin , lIni , lCreaIntRef) CLASS Ttable
 // ? "AQUI ES"
 
    IF ::lSetFieldDef  .AND. "DPPROGRA"<>::cTable .AND. ASCAN(oDp:aDefault,{|a,n|a[1]==::cTable})>0
-     EJECUTAR("DPTABLESETDEF",SELF)
+     EJECUTAR("DPTABLESETDEF",SELF) // 25/08/2023  Inactivado y aplica en appendblank()
    ENDIF
 
   // Metod load debe ejecutarlo Previamente
@@ -2142,9 +2169,20 @@ METHOD Commit( cWhere , lReload , lJoin , lIni , lCreaIntRef) CLASS Ttable
 
    // ::cTable:=ALLTRIM(::cTable)
 
+/*
+27/04/2023 innecesario
    IF !Empty(::aRecClone) .AND.   !Empty(::cWhere)
       EJECUTAR("DPAUDELIMODTAB",Self)
       ::aRecClone:={}
+   ENDIF
+*/
+   /*
+   // registro de Auditoria para incluir y modificar 27/04/2023
+   // No puede ser Auditoría
+   */
+
+   IF !"AUD"$UPPER(::cTable)
+     EJECUTAR("DPAUDELIMODTAB",Self)
    ENDIF
 
    IF ::lAppend
@@ -2154,7 +2192,7 @@ METHOD Commit( cWhere , lReload , lJoin , lIni , lCreaIntRef) CLASS Ttable
       //? ::cTable,"COMMIT",nAt,LEN(oDp:aInsertDef),IF(LEN( oDp:aInsertDef)>0,oDp:aInsertDef[1,1]=::cTable,"")
 
       IF nAt>0
-        EJECUTAR("TTABLEINSERT",SELF)
+        EJECUTAR("TTABLEINSERT",SELF) // 25/08/2023 Valores por defecto son Asignados en Append Blank
       ENDIF
 
       // JN 13/03/2015
@@ -2768,7 +2806,9 @@ METHOD Commit( cWhere , lReload , lJoin , lIni , lCreaIntRef) CLASS Ttable
 
     aMemos:={}
 
-    DPWRITE("TEMP\commit_"+ALLTRIM(::cTable)+LSTR(SECONDS())+".SQL",cSql)
+    IF ::lFileLog
+      DPWRITE("TEMP\commit_"+ALLTRIM(::cTable)+LSTR(SECONDS())+".SQL",cSql)
+    ENDIF
 
     IF !lRet
 
@@ -2993,12 +3033,12 @@ RETURN File(cFileTxt)
 /*
 // Convierte en Dbf
 */
-METHOD CTODBF(cFileDbf,cRdd,oMeter,oSay,cError,lCreate) CLASS tTable
+METHOD CTODBF(cFileDbf,cRdd,oMeter,oSay,cError,lCreate,cFieldIndex,nRefresh) CLASS tTable
+RETURN EJECUTAR("TTABLETODBF",Self,cFileDbf,cRdd,oMeter,oSay,cError,lCreate,cFieldIndex,nRefresh)
+/*
     LOCAL cAlias:=ALIAS(),nContar:=0,I,cTotal,cText:="",aFields:={}
     LOCAL cDir // :=cFilePath(cFileDbf)
-    LOCAL cFileSql
-
-//? cDir,"EN CTODBF"
+    LOCAL cFileSql,cIndex
 
     cError:=""
 
@@ -3026,8 +3066,11 @@ METHOD CTODBF(cFileDbf,cRdd,oMeter,oSay,cError,lCreate) CLASS tTable
     cFileDbf:=cFileDbf+IIF("."$cFileDbf,"",".DBF")
 
     IF lCreate
+
+      cIndex:=STRTRAN(UPPE(cFileDbf),".DBF",".CDX")
+
       FERASE(cFileDbf)
-      FERASE(STRTRAN(UPPE(cFileDbf),".DBF",".CDX"))
+      FERASE(cIndex) // STRTRAN(UPPE(cFileDbf),".DBF",".CDX"))
       FERASE(STRTRAN(UPPE(cFileDbf),".DBF",".FPT"))
     ENDIF
 
@@ -3087,13 +3130,17 @@ SysRefresh(.T.)
 
     FOR I := 1 TO LEN(::aDataFill)
 
-       IIF( ValType(oMeter)="O",oMeter:Set(I),NIL)
+       // IIF( ValType(oMeter)="O",oMeter:Set(I),NIL)
 
        cTotal     :=cText+"["+GetNumRel(I,::RecCount())+"]"
 
-       IIF( ValType(oSay)="O" , oSay:SetText(cTotal) , NIL )
+       // IIF( ValType(oSay)="O" , oSay:SetText(cTotal) , NIL )
 
-       IF ++nContar>100
+       IF ++nContar>500
+
+         IIF( ValType(oMeter)="O",oMeter:Set(I),NIL)
+         IIF( ValType(oSay)="O" , oSay:SetText(cTotal) , NIL )
+
          SysRefresh(.T.)
          COMMIT
          nContar:=0
@@ -3120,13 +3167,22 @@ SysRefresh(.T.)
     DPWRITE("TEMP\"+cFileSql,::cSql)
 
     COMMIT
+
+    IF !Empty(cFieldIndex)
+       USE
+       USE (cFileDbf) NEW EXCLU VIA cRdd
+       INDEX ON (cFieldIndex) TAG "INDEXKEY" TO (cIndex)
+    ENDIF
+
     USE
 
     DPSELECT(cAlias)
 
     SysRefresh(.T.)
 
+
 RETURN .T.
+*/
 
 // Revisa Valores Faltantes para la Integridad Ref
 METHOD ChkIntRef(cField) CLASS tTable
@@ -3431,8 +3487,10 @@ return (nRecs == 0)
 */
 METHOD Add( cName, xValue ) CLASS Ttable
 
-       __objAddData( Self, cName )
+      __objAddData( Self, cName )
       __objSendMsg(Self , cName , xValue)
+      __objSendMsg(Self , "_"+cName , xValue)
+
 /*
 
       cName:=UPPE(ALLTRIM(cName))
@@ -3515,6 +3573,7 @@ RETURN ::aVars[::nPos,2]
 METHOD Set( cName, xValue ) CLASS Ttable
 
   __objSendMsg(Self , cName , xValue)
+  __objSendMsg(Self , "_"+cName , xValue)
 
 RETURN Self
 
@@ -3601,8 +3660,8 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
 
       // ::add(cMsg,uValue)
       __objAddData( Self, cMsg )
-      oSend(Self ,cMsg , uValue)
-
+      //  oSend(Self ,cMsg , uValue)
+      __objSendMsg(Self,cMsg,uValue) // 16/03/2023
    ELSE
 
      IF !ValType(::oScript)="O"
@@ -3687,7 +3746,7 @@ RETURN NIL
 /*
 // Abre un Cursor
 */
-   FUNCTION OpenTable(cTable,lFill,oOdbc,lChecktable,lExcluye,lDicc,lLimit,lLower)
+FUNCTION OpenTable(cTable,lFill,oOdbc,lChecktable,lExcluye,lDicc,lLimit,lLower)
    LOCAL oTable,cSql,nAt:=0,aTablas,aData:={},cScrRun:="",lNativo:=.F.
    LOCAL nT1:=SECONDS()
    LOCAL cDsn
@@ -3995,6 +4054,8 @@ jn 01/05/2014, si es una vista y no esta en dptablas, tratara de importarla
 
 // ? GETPROCE(),"BUSCANDO MENSAJE LIMIT ANTES DE TTABLE"
    oTable:=TTable():New( NIL, cSql , oOdbc ,NIL , IIF(lFill , 0 , 1 ) , NIL,NIL,NIL, lLower)
+
+   oTable:lDicc:=lDicc   // 28/04/2023
 
 // ? GETPROCE(),"BUSCANDO MENSAJE LIMIT LUEGO DE TTABLE"
 // ,lCheckTable,lLimit)
