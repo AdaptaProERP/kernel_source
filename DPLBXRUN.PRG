@@ -88,6 +88,7 @@ CLASS TDpLbx FROM TDpClass
    DATA  aLineEmpty  // Línea Vacia
    DATA  aParam      // Valores para los parametros ::uData1,::uData2
    DATA  aColColor   INIT {} // Colores para buscar
+   DATA  aColEdit    INIT {} // {cField,nCol} Columnas Editables
 
    DATA  nNumLbx     // Identificador del DpLbx
    DATA  nStyle      // Stilo del Browse
@@ -129,6 +130,7 @@ CLASS TDpLbx FROM TDpClass
    DATA  cIniFilter  INIT "" // Inicia como buscador
    DATA  cMessage    INIT ""
    DATA  cFileSql    INIT ""
+   DATA  cPrgIni     INIT ""
 
    DATA  cFilter_Log  INIT ""
    DATA  cFilter_text INIT "Activo"
@@ -150,12 +152,37 @@ CLASS TDpLbx FROM TDpClass
     DATA nClrText4 INIT 0
     DATA nClrText5 INIT 0
 
+    DATA nFrezer   INIT 0
+
+
     DATA cClrText  INIT ""
     DATA cClrText1 INIT ""
     DATA cClrText2 INIT ""
     DATA cClrText3 INIT ""
     DATA cClrText4 INIT ""
     DATA cClrText5 INIT ""
+
+    // 09/09/2023 SubConsultas
+    DATA cSub01 INIT ""
+    DATA cSub02 INIT ""
+    DATA cSub03 INIT ""
+    DATA cSub04 INIT ""
+    DATA cSub05 INIT ""
+    DATA cSub06 INIT ""
+    DATA cSub07 INIT ""
+    DATA cSub08 INIT ""
+    DATA cSub09 INIT ""
+    DATA cSub10 INIT ""
+    DATA cSub11 INIT ""
+    DATA cSub12 INIT ""
+    DATA cSub13 INIT ""
+    DATA cSub14 INIT ""
+    DATA cSub15 INIT ""
+    DATA cSub16 INIT ""
+    DATA cSub17 INIT ""
+    DATA cSub18 INIT ""
+    DATA cSub19 INIT ""
+    DATA cSub20 INIT ""
 
     // DATA nClrPane1 INIT oDp:nGris
     // DATA nClrPane2 INIT oDp:nGris2
@@ -244,7 +271,7 @@ CLASS TDpLbx FROM TDpClass
    METHOD RunAction(nButton,nOption,lRun)
    METHOD RunKey(nKey)
    METHOD GetValue(cField,oGet)
-   METHOD GotFocus() INLINE (oDp:cHelpRtf:=::cFileRtf,::oBrw:GotFocus())
+   METHOD GotFocus() INLINE (oDp:oLbx:=SELF,oDp:cHelpRtf:=::cFileRtf,::oBrw:GotFocus())
 
    METHOD Query()    INLINE EJECUTAR("BRWMAKERRUN",::cTable)
    METHOD Find()
@@ -332,6 +359,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   LOCAL lTotal     :=.F.
   LOCAL lHayTotales:=.F.
   LOCAL aTotales   :={}
+  LOCAL lEditar    :={}
 
 //LOCAL lDialog:=.F. // !oDp:lMenuXp
 
@@ -497,6 +525,19 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
      cTable:=MACROEJE(cTable)
   ENDIF
 
+  // 09/09/2023
+  ::cSub01    :=GetLbx("SUB01",NIL,"C")
+  ::cSub02    :=GetLbx("SUB02",NIL,"C")
+  ::cSub03    :=GetLbx("SUB03",NIL,"C")
+  ::cSub04    :=GetLbx("SUB04",NIL,"C")
+  ::cSub05    :=GetLbx("SUB05",NIL,"C")
+  ::cSub06    :=GetLbx("SUB06",NIL,"C")
+  ::cSub07    :=GetLbx("SUB07",NIL,"C")
+  ::cSub08    :=GetLbx("SUB08",NIL,"C")
+  ::cSub09    :=GetLbx("SUB09",NIL,"C")
+  ::cSub10    :=GetLbx("SUB10",NIL,"C")
+
+
   cSelect      :=GetLbx("SELECT" )
   cInner       :=GetLbx("INNER"  )
   cInner2      :=GetLbx("INNER2",NIL,"C")
@@ -512,8 +553,6 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
 
   cWhere       :=GetLbx("WHERE"  )
-
-
   aDelCol      :=GetLbx("DELETECOL")
   cIniGet      :=GetLbx("INIGET"  )
 
@@ -619,6 +658,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   lDelRef  :=GetLbx("DELETEREF"  ,NIL,"L",,,.F.)
   lChkSql  :=GetLbx("LCHKSQL"    ,NIL) // ,"L",,,.T.) // Solo se excluye si esta declarado
 
+  ::cPrgIni  :=GetLbx("PRGINI"     ,NIL,"C",,,"") // 02/08/2023 programa de Inicio
+
   ::nClrPane1:=nClrPane1
   ::nClrPane2:=nClrPane2
 
@@ -642,6 +683,12 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   lFullSize :=GetLbx("LFULLSIZE"  ,.F.,"L")  // Abarca todo el Video Disponible
   lFullHight:=GetLbx("LFULLHIGHT" ,.F.,"L")  // Abarca todo el Alto Disponible
   lFullWidht:=GetLbx("LFULLWIDHT" ,.F.,"L")  // Abarca todo el Ancho
+
+  // 03/05/2023, Ficheros empresas no debe excluirlas
+
+  IF !Empty(GetLbx("LEXCLUYE"))
+    oDp:lExcluye  :=GetLbx("LEXCLUYE" ,oDp:lExcluye,"L")  // 03/05/2023
+  ENDIF
 
   ::cFilter_Log :=GetLbx("FILTER_LOG"  ,NIL,"C")  // Filtro para campos Logicos, removerlos, su valor se guarda en el DATASEY
   ::cFilter_Text:=GetLbx("FILTER_TEXT" ,NIL,"C")  // Filtro para campos Logicos, removerlos, su valor se guarda en el DATASEY
@@ -766,6 +813,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
   cWhere:=cWhere+CHR(28) // Necesario para Realizar Filtrado en el oCursor
 
+  DEFAULT ::cWhereLog:=""
+
   cSql    :="SELECT "+cSelect+" FROM "+UPPE(cTable)+;
             " "+cInner  +;
             " "+::cWhereLog + IIF(Empty(::cWhereLog) .AND. !Empty(cWhere) ,""," AND ")+cWhere +;
@@ -773,10 +822,50 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
             " "+cHaving +;
             " "+cOrderBy+" "
 
+  ::cSub01    :=BUILDSUBC(::cSub01,"SUB01")
+  ::cSub02    :=BUILDSUBC(::cSub02,"SUB02")
+  ::cSub03    :=BUILDSUBC(::cSub03,"SUB03")
+  ::cSub04    :=BUILDSUBC(::cSub04,"SUB04")
+  ::cSub05    :=BUILDSUBC(::cSub05,"SUB05")
+  ::cSub06    :=BUILDSUBC(::cSub06,"SUB06")
+  ::cSub07    :=BUILDSUBC(::cSub07,"SUB07")
+  ::cSub08    :=BUILDSUBC(::cSub08,"SUB08")
+  ::cSub09    :=BUILDSUBC(::cSub09,"SUB09")
+  ::cSub10    :=BUILDSUBC(::cSub10,"SUB10")
+  ::cSub11    :=BUILDSUBC(::cSub01,"SUB11")
+  ::cSub12    :=BUILDSUBC(::cSub02,"SUB12")
+  ::cSub13    :=BUILDSUBC(::cSub03,"SUB13")
+  ::cSub14    :=BUILDSUBC(::cSub04,"SUB14")
+  ::cSub15    :=BUILDSUBC(::cSub05,"SUB15")
+  ::cSub16    :=BUILDSUBC(::cSub06,"SUB16")
+  ::cSub17    :=BUILDSUBC(::cSub07,"SUB17")
+  ::cSub18    :=BUILDSUBC(::cSub08,"SUB18")
+  ::cSub19    :=BUILDSUBC(::cSub09,"SUB19")
+  ::cSub20    :=BUILDSUBC(::cSub10,"SUB20")
 
-//  ? cSql,"cSql"
+  cSql:=STRTRAN(cSql,"&SUB01",::cSub01)
+  cSql:=STRTRAN(cSql,"&SUB02",::cSub02)
+  cSql:=STRTRAN(cSql,"&SUB03",::cSub03)
+  cSql:=STRTRAN(cSql,"&SUB04",::cSub04)
+  cSql:=STRTRAN(cSql,"&SUB05",::cSub05)
+  cSql:=STRTRAN(cSql,"&SUB06",::cSub06)
+  cSql:=STRTRAN(cSql,"&SUB07",::cSub07)
+  cSql:=STRTRAN(cSql,"&SUB08",::cSub08)
+  cSql:=STRTRAN(cSql,"&SUB09",::cSub09)
+  cSql:=STRTRAN(cSql,"&SUB10",::cSub10)
+  cSql:=STRTRAN(cSql,"&SUB11",::cSub11)
+  cSql:=STRTRAN(cSql,"&SUB12",::cSub12)
+  cSql:=STRTRAN(cSql,"&SUB13",::cSub13)
+  cSql:=STRTRAN(cSql,"&SUB14",::cSub14)
+  cSql:=STRTRAN(cSql,"&SUB15",::cSub15)
+  cSql:=STRTRAN(cSql,"&SUB16",::cSub16)
+  cSql:=STRTRAN(cSql,"&SUB17",::cSub17)
+  cSql:=STRTRAN(cSql,"&SUB18",::cSub18)
+  cSql:=STRTRAN(cSql,"&SUB19",::cSub19)
+  cSql:=STRTRAN(cSql,"&SUB20",::cSub20)
 
   cSql:=EJECUTAR("WHERE_VAR",cSql)
+
 
   ::cSqlFilter:=cSql // Utilizado para Buscar
 
@@ -1173,6 +1262,12 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
       cClrGra :=GetLbx("COL"+STRZERO(I,2)+"_COLOR")
       // lTotal  :=GetLbx("COL"+STRZERO(I,2)+"_TOTAL")
       lTotal  :=GetLbx("COL"+STRZERO(I,2)+"_TOTAL",NIL,"L",NIL,.F.)
+      lEditar :=GetLbx("COL"+STRZERO(I,2)+"_EDIT" ,NIL,"L",NIL,.F.)
+
+      // 14/05/2023
+      IF lEditar
+         AADD(::aColEdit,{I,::oCursor:FieldName(I)})
+      ENDIF
 
       nClrCol:=CTOO(nClrCol,"N")
       lTotal :=IF(ValType(lTotal)="L",lTotal,.F.)
@@ -1307,7 +1402,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 //   ENDIF
 
    oBrw:bRClicked :={||eval(::bRClicked )}
-   oBrw:bLDblClick:={||eval(::bLDblClick)}
+   oBrw:bLDblClick:={|| IF(EJECUTAR("LBXRUNCLIC",SELF),NIL,eval(::bLDblClick))} // JN 14/05/2023
 
 //? ::lDialog,oGet:ClassName()
 
@@ -1521,6 +1616,11 @@ METHOD ACTIVATE() CLASS TDpLbx
 
    ::nWidth :=nWidth
    ::nHeight:=nHeight
+
+   // 02/08/2023 Facilita intervenir en la Barra de Botones
+   IF !Empty(::cPrgIni)
+      EJECUTAR(::cPrgIni,SELF)
+   ENDIF
 
    IF ::lDialog
 
@@ -3569,7 +3669,21 @@ STATIC FUNCTION ATOTALES(aData,bBlq,nColIf)
 
 RETURN aTotal
 
+/*
+// CREAR LA SUBCONSULTA
+*/
+FUNCTION BUILDSUBC(cSubC,cCol)
 
+   IF Empty(cSubC)
+      RETURN .F.
+   ENDIF
+
+   cSubC:=CRLF+"("+cSubC+" LIMIT 1) "
+
+   // ? cSubC,"BUILDSUBC"
+   // cSubC:=CRLF+"("+cSubC+" LIMIT 1) AS  "+cCol+CRLF
+
+RETURN cSubC
 
 /*
 // JN 28/08/2014
