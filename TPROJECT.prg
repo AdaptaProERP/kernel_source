@@ -15,7 +15,7 @@ CLASS TPROJECT
 
   DATA  cName       // AS CHARACTER   INIT ""  // READONLY // [ER]
   DATA  cProgram
-  DATA  cScript    AS "TPROJECT" // Programa DpXbase para ejecutas las funciones UDF
+  DATA  cScript  INIT "TPROJECT" // Programa DpXbase para ejecutas las funciones UDF
   DATA  oScript
 
   DATA  aCodigos INIT {}
