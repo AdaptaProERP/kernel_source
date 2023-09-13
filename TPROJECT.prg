@@ -1,6 +1,7 @@
 /*
  *  TPROJECT()
  *  Permite crear variables de manera dinámica reemplazando el clasico esquema para crear variables Virtuales
+ *  Creada por Juan Navas 29/08/2020 03:02:28
 */
 
 # include "FiveWin.ch"
@@ -14,6 +15,7 @@ CLASS TPROJECT
 
   DATA  cName       // AS CHARACTER   INIT ""  // READONLY // [ER]
   DATA  cProgram
+  DATA  cScript    AS "TPROJECT" // Programa DpXbase para ejecutas las funciones UDF
   DATA  oScript
 
   DATA  aCodigos INIT {}
@@ -156,7 +158,18 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
 
   ENDIF
 
-  uValue:=::RunScript(cMsg,Self)
+  IF !ValType(::oScript)="O"
+      ::oScript:=XCOMPILA(::cScript)
+  ENDIF
+
+  IF !::oScript:IsFunction(cMsg)
+     MensajeErr("FUNCTION "+cMsg+CRLF+GETPROCE(),"Función no existe ")
+     RETURN NIL
+  ENDIF
+
+  ::oScript:lNoError:=!::lMsgError
+
+  uValue:=::RunScript(cMsg,Self,uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11)
 
 RETURN NIL
 
@@ -169,6 +182,7 @@ CLASS TACTIVIDAD FROM TPROJECT
   DATA  oPry
   DATA  nNivel  INIT 2
   DATA  aTareas INIT {}
+  DATA  cScript INIT "TACTIVIDAD"
 
   METHOD New( cName )
   METHOD End()  INLINE NIL
@@ -194,8 +208,9 @@ RETURN Self
 CLASS TTAREA FROM TPROJECT
 
   DATA  oAct
-  DATA  nNivel INIT 2
-  DATA  cName  INIT "TAREA"
+  DATA  nNivel  INIT 3
+  DATA  cName   INIT "TAREA"
+  DATA  cScript INIT "TTAREA"
 
   METHOD New( cName )
   METHOD End()  INLINE NIL
