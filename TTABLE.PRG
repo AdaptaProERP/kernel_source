@@ -16,6 +16,8 @@ STATIC aMemos,aTableOpen,nHandler
 STATIC aTableStruct // Registros Exluidos
 STATIC aLimit
 
+STATIC aTables  // 08/01/2024  Facilita mantener abiertos Objetos para facilitar la insercion de registros
+
 MEMVAR oDp,aData
 
 
@@ -100,6 +102,7 @@ CLASS Ttable
    DATA   lMsgError      INIT .F. // Mostrar Error en ONEROR
    DATA   lAuditar       INIT .T. // Aplica Pista de Auditoria, importar datos en excel generará incidencias  // programa auditaelimod
    DATA   lFileLog       INIT .T. // Guardar LOG en archivo en TEMP\ mediante programa COMMIT
+   DATA   lFill          INIT .F. // 08/01/2024 Objeto solo para Insertar
 
    DATA   lSET_FOREIGN   INIT .T.
    // DATA   lSetForeignkeyOff INIT .F.
@@ -189,8 +192,7 @@ CLASS Ttable
    METHOD CreaRegIntRef(lRun) INLINE (RUNNEW("DPCREAREGINTREF",SELF,lRun),;
                                       ::lCreaRegIntRef:=.F.)
    METHOD ISFIELD(cField)
-   METHOD CLOSE() INLINE ::End() // 22/03/2022
-   // METHOD Use()   // Sólo para Nativo
+   METHOD CLOSE(lEnd)    // METHOD Use()   // Sólo para Nativo  08/01/2024
 
    METHOD SetInsert(nRecord) INLINE (nRecord:=IIF(nRecord=NIL,100,nRecord),::nInsert:=nRecord,::nCountIns:=0)
 
@@ -271,7 +273,7 @@ CLASS Ttable
 
    METHOD ViewArray() INLINE ViewArray(::aDataFill,::cTable)
 
-      METHOD  SetForeignkeyOff() INLINE  ::EXECUTE("SET FOREIGN_KEY_CHECKS = 0"), ::lSET_FOREIGN:=.F.
+   METHOD  SetForeignkeyOff() INLINE  ::EXECUTE("SET FOREIGN_KEY_CHECKS = 0"), ::lSET_FOREIGN:=.F.
    METHOD  SetForeignkeyOn()  INLINE  ::EXECUTE("SET FOREIGN_KEY_CHECKS = 1"), ::lSET_FOREIGN:=.T.
 
    METHOD HandleEvent(nMsg, nWParam, nLParam ) EXTERN ;
@@ -749,6 +751,27 @@ ViewArray(::aFields)
 //  ::oCursor:=NIL
 
 Return Self
+
+
+METHOD CLOSE(lEnd)
+  LOCAL nTableAt
+
+  DEFAULT lEnd:=.F.
+
+  // 08/01/2024 no cierra los objetos definitivamente son necesario para su reutilización
+  IF !::lFill
+
+    nTableAt:=ASCAN(aTables,{|o,n| o:cTable=::cTable})
+
+    IF nTableAt>0
+       RETURN NIL
+    ENDIF
+
+  ENDIF
+
+  ::End(lEnd) // 22/03/2022
+
+RETURN NIL
 
 METHOD ISFIELD(cField) CLASS Ttable
 //
@@ -1693,7 +1716,7 @@ METHOD AppendBlank() CLASS TTable
 
     uValue:=::aDefault[I,2]
 
-    IF LEFT(uValue,1)="&"
+    IF LEFT(uValue,1)="&" .OR. LEFT(uValue,1)=["]
       uValue:=MACROEJE(uValue)
     ENDIF
 
@@ -3249,7 +3272,7 @@ METHOD End(lDel) CLASS Ttable
     ENDIF
 */
 
-  IF lDel .AND. .F.
+  IF lDel // 08/01/2024 libera memoria .AND. .F.
    ::aDataFill  :=NIL   // Data Completa de la tabla (Original)
    ::aBodyLink  :=NIL  // Campos de enlace
    ::aHeadLink  :=NIL   // Campos de la Tabla enlazadora
@@ -3751,6 +3774,7 @@ FUNCTION OpenTable(cTable,lFill,oOdbc,lChecktable,lExcluye,lDicc,lLimit,lLower)
    LOCAL nT1:=SECONDS()
    LOCAL cDsn
    LOCAL lTracer:=oDp:lTracer
+   LOCAL nTableAt:=0 // Posicion de ttable abiertar para incluir 08/01/2024
 
    oDp:nTimerRun:=SECONDS() // JN Obtener el Tiempo de uso
 
@@ -3777,6 +3801,8 @@ FUNCTION OpenTable(cTable,lFill,oOdbc,lChecktable,lExcluye,lDicc,lLimit,lLower)
    // DEFAULT lStrSql   :=.F. // No esta Grabando Memos
 
    DEFAULT oDp:nMySqlT1:=SECONDS() // Toma el Tiempo de la Ultima Ejecución de MySql
+
+   DEFAULT aTables    :={} // 08/01/2024 Mantiene objeto abierto
 
    oDp:nMySqlT2:=SECONDS()
 
@@ -3815,6 +3841,21 @@ FUNCTION OpenTable(cTable,lFill,oOdbc,lChecktable,lExcluye,lDicc,lLimit,lLower)
    ENDIF
 
    cTable :=cTable(cSql)
+
+   // BUSCA EN MEMORIA LA TABLE, ESTA ES PARA INSERTAR 01/08/2024
+
+   oDp:aTablesOpen:=aTables // necesario para monitoreo
+
+   IF !lFill .AND. .F.
+
+      nTableAt:=ASCAN(aTables,{|o,n| o:cTable=cTable})
+
+      IF nTableAt>0
+         oTable:=aTables[nTableAt]
+         RETURN oTable
+      ENDIF
+
+   ENDIF
 
    /*
    // Verifica el Tiempo de MySql sin Utilización
@@ -4056,6 +4097,7 @@ jn 01/05/2014, si es una vista y no esta en dptablas, tratara de importarla
    oTable:=TTable():New( NIL, cSql , oOdbc ,NIL , IIF(lFill , 0 , 1 ) , NIL,NIL,NIL, lLower)
 
    oTable:lDicc:=lDicc   // 28/04/2023
+   oTable:lFill:=lFill   // 08/01/2024
 
 // ? GETPROCE(),"BUSCANDO MENSAJE LIMIT LUEGO DE TTABLE"
 // ,lCheckTable,lLimit)
@@ -4123,6 +4165,12 @@ jn 01/05/2014, si es una vista y no esta en dptablas, tratara de importarla
    oDp:nSeconds  :=nT1-SECONDS()
 
    oDp:lExcluye  := .T. // 16/04/2014 Retorna la exclusión
+
+   // 08/01/2024
+   IF !lFill .AND. nTableAt>0
+      AADD(aTables,oTable)
+   ENDIF
+
 
 RETURN oTable
 
@@ -5522,6 +5570,11 @@ FUNCTION COUNT(cTable,cWhere,oDb,lSay)
 
    oDp:lExcluye:=.F.
 
+   // 18/11/2023
+   IF oDp:lMYSQLCHKCONN
+      MYSQLCHKCONN()
+   ENDIF
+
    nCount  :=oDb:QueryData(oDp:cSql)
    nCount  :=CTOO(nCount,"N")
 
@@ -5757,7 +5810,13 @@ FUNCTION SQLUPDATE(cTable,cField,cUpdate,cWhere,lView,oOdbc)
 
    oDp:lExcluye:=.F.
 
-   IIF(ValType(oDp:oSay)="O",oDp:oSay:SetText("Actualizando Table "+cTable),NIL)
+   // 08/01/2024, activado por settimer en DPLOADCNF, Necesario inactivado para optimizar
+
+   IF oDp:lMYSQLCHKCONN
+      MYSQLCHKCONN()
+   ENDIF
+
+   IIF(ValType(oDp:oSay)="O",oDp:oSay:SetText("Actualizando Tabla "+cTable),NIL)
 
    IF Empty(cField)
      MensajeErr("Requiere parámetro cField, SQLUPDATE(cTable,cField,cUpdate,cWhere,lView,oOdbc) ")
@@ -5802,6 +5861,8 @@ FUNCTION SQLUPDATE(cTable,cField,cUpdate,cWhere,lView,oOdbc)
    DEFAULT oDp:lUpdateMsgRun:=.F.
 
    IF !oDp:lUpdateMsgRun .OR. .T.
+
+      DPWRITE("TEMP\UPDATE_"+cTable+LSTR(SECONDS())+".SQL",oDp:cSql+CRLF+oDp:cDpXbaseLine+CRLF+GetProce()) // JN 13/09/2023
 
       oOdbc:Execute(oDp:cSql)
 
@@ -6607,3 +6668,15 @@ RETURN NIL
 
 FUNCTION GETDBSERVER(cTable)
 RETURN oDp:oDbServer
+
+// 08/01/2024
+FUNCTION RELEASEOPENTABLE()
+
+  AEVAL(aTables,{|o,n| o:End(.T.)})
+
+  aTables:={}
+
+RETURN NIL
+
+// FUNCTION GETOPENTABLES()
+// RETURN aTables
