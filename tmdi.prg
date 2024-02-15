@@ -1,4 +1,4 @@
-   /*
+/*
 // TMDI
 // Encabezado del Documento
 // 03/03/2002
@@ -33,7 +33,7 @@ CLASS TMDI
 
     DATA nForms,nClrPane,nClrText
 
-    DATA cTitle,cVarName,cScript,cOnClose INIT "ONCLOSE"
+    DATA cTitle,cVarName,cScript,cOnClose INIT ""
 
     DATA cCancel   INIT "CANCEL"
     DATA cPreSave  INIT "PRESAVE"
@@ -46,12 +46,17 @@ CLASS TMDI
     DATA oWnd
     DATA oDlg  // Compatibilidad con TDPEDIT
     DATA oScript,oControl
-    DATA oFocus   // Este el Focus para Incluir y Modificar
-    DATA oBrw     // Browse Propietario del Mdi
+    DATA oFrom     // jn 9/2/2024 Refiere a la clase objeto donde buscar funciones que no estan en oScript, necesario para seccionar el programa o utilizar funcionalidades de otros formularios
+                   // similar al SET PROCE TO
+    DATA oFocus    // Este el Focus para Incluir y Modificar
+    DATA oBrw      // Browse Propietario del Mdi
     DATA oBar
     DATA oMenu  INIT NIL
     DATA oBtnFilter
     DATA oDb,oTable
+    DATA oFontBtn INIT NIL
+    DATA oFontBrw INIT NIL // Fuente del Browse
+
 
     DATA aScrollSize INIT {} // Datos del ASIZE
     DATA oFrmLink    INIT NIL // Formulario Enlace, si esta activo ejecutara Refrescar
@@ -96,6 +101,8 @@ CLASS TMDI
 
     DATA nOption   INIT 0
 
+    DATA nClrPaneBar INIT oDp:nGris // necesario para gotfocus
+
     DATA lVScroll INIT .F.
     DATA lHScroll INIT .F.
     DATA aScrollSize INIT {}
@@ -107,6 +114,7 @@ CLASS TMDI
     METHOD CreateWindow(X,x1,x2,y1,y2,lMax) INLINE  ::Windows(x1,x2,y1,y2,lMax)
     METHOD SetMenu(oMenu)
     METHOD NewFilter(nOption) INLINE EJECUTAR("BRWNEWFILTER",Self,nOption)
+
 
     METHOD IsDef( cName ) INLINE __objHasMsg( self, cName )
 
@@ -163,7 +171,8 @@ CLASS TMDI
 //    METHOD Mensaje(cMensaje,cTitle)
     METHOD Prepare() INLINE (PUBLICO("oMdi",Self),PUBLICO(::cVarName,Self),MOVER(Self,::cVarName))
     METHOD End() INLINE ::oWnd:End()
-    METHOD ONCLOSE()
+    METHOD ONCLOSE()            // jn 01/09/2023
+    METHOD SetFunction(cProgram) // 9/02/2024
     METHOD Close() INLINE ::End()
     METHOD HandleEvent( nMsg, nWParam, nLParam ) EXTERN ;
                              WndHandleEvent( Self, nMsg, nWParam, nLParam )
@@ -173,6 +182,7 @@ CLASS TMDI
 ENDCLASS
 
 METHOD New(cTitle, cVarName , cFileEdit , lWindows,oMenu) CLASS TMDI
+     LOCAL cScript
 
      DEFAULT lWindows:=.F.
 
@@ -198,10 +208,9 @@ METHOD New(cTitle, cVarName , cFileEdit , lWindows,oMenu) CLASS TMDI
      PUBLICO("oMdi",Self)
      // MOVER("oEdit",::cVarName)
 
-     ::SetScript()
-
-// ViewArray(::oScript:aParam)
-//? "::oScript:aParam"
+     ::SetScript() // 02/09/2023
+     ::cScript :=::oScript:cProgram
+     ::cOnClose:="ONCLOSE"
 
      IF ValType(::oScript)="O"
         ::aParam:=ACLONE(::oScript:aParams) // Parametros
@@ -302,15 +311,19 @@ METHOD Windows(nTop,nLeft,nWidth,nHeight,lMax,oMenu) CLASS TMDI
                FROM nTop,nLeft TO nWidth,nHeight PIXEL;
                COLOR ::nClrPane,::nClrText MENU ::oMenu
 
+// ;  FONT oDp:oFontMenu
+
        ELSE
 
          DEFINE WINDOW ::oWnd;
                TITLE ::cTitle;
                FROM nTop,nLeft TO nWidth,nHeight PIXEL;
-               COLOR ::nClrPane,::nClrText MENU ::oMenu NOZOOM
-
+               COLOR ::nClrPane,::nClrText MENU ::oMenu NOZOOM;
 
        ENDIF
+
+     // NO APLICA ::oWnd:SetFont(oDp:oFontMenu)
+
 */
 
 //;
@@ -330,6 +343,8 @@ METHOD Windows(nTop,nLeft,nWidth,nHeight,lMax,oMenu) CLASS TMDI
               TITLE ::cTitle;
               FROM nTop,nLeft TO nWidth,nHeight PIXEL;
               COLOR ::nClrPane,::nClrText MENU ::oMenu
+
+// ;  FONT oDp:oFontMenu
      ELSE
 
       DEFINE WINDOW ::oWnd;
@@ -338,6 +353,7 @@ METHOD Windows(nTop,nLeft,nWidth,nHeight,lMax,oMenu) CLASS TMDI
              FROM nTop,nLeft TO nWidth,nHeight PIXEL;
              COLOR ::nClrPane,::nClrText;
              NOMAXIMIZE MENU ::oMenu
+//;  FONT oDp:oFontMenu
 
       ENDIF
 
@@ -365,6 +381,7 @@ RETURN Self
 // Recuperar Focus
 */
 METHOD GotFocus(lAuto) CLASS TMDI
+   // LOCAL oFont
 
    DEFAULT lAuto:=.F.
 
@@ -380,7 +397,7 @@ METHOD GotFocus(lAuto) CLASS TMDI
 
    // MOVER(Self,"oEdit")
 
-   AEVAL(::aBrwFocus,{|a,n| EJECUTAR("BRWGOTFOCUS",a)})
+   AEVAL(::aBrwFocus,{|a,n| EJECUTAR("BRWGOTFOCUS",a,SELF)})
 
 RETURN NIL
 
@@ -423,7 +440,7 @@ METHOD RunScript(cFunction,uPar1,uPar2,uPar3,uPar4,uPar5,nPar6,nPar7,nPar8,nPar9
 
   IF !::oScript:IsFunction(cFunction)
 
-     ::MensajeErr("Función : "+cFunction+" No Existe en  "+::oScript:cScript)
+     ::MensajeErr("Función : "+cFunction+" No Existe en  "+::oScript:cProgram)
 
   ELSE
 
@@ -685,6 +702,10 @@ METHOD ACTIVATE(bInit,bEnd,bResized,lErrorSys) CLASS TMDI
        BMPGETBTN(::oBar)
     ENDIF
 
+    IF ValType(::oBrw)="O" .AND. ::oFontBrw=NIL
+      ::oFontBrw:=::oBrw:oFont
+    ENDIF
+
 //;
 //                   IF(lSalir,::oWnd:End(),NIL))
 
@@ -727,7 +748,35 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
        ::SetScript(::cScript)
     ENDIF
 */
-    uValue:=::RunScript(cMsg,uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11)
+
+    // busca prioritariamente en el script local, luego lo busca en el script asociado
+
+    IF ValType(::oFrom)="O" .AND. !::oScript:Isfunction(cMsg)
+
+? "AQUI BUSCAMOS LA FUNCION EN LA PPAL, LUEGO EN EL SIGUIENTE",::oForm
+
+       IF !::oFrom:Isfunction(cMsg)
+
+          MensajeErr("FUNCION "+cMsg+" no existe en "+::oFrom:cProgram)
+
+       ELSE
+
+          ::oFrom:cError:=""
+          lResp:=::oFrom:Run(cMsg,uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11)
+          RETURN lResp
+
+       ENDIF
+
+       IF !Empty(::oFrom:cError)
+         MensajeErr(::oFrom:cError,::oFrom:cScript+ "FUNCTION "+cMsg)
+       ENDIF
+
+    ELSE
+
+      uValue:=::RunScript(cMsg,uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11)
+
+    ENDIF
+
 
 /*
     IF !::oScript:IsFunction(cMsg)
@@ -752,6 +801,11 @@ METHOD SETBTNBAR(nAlto,nAncho,oBar,nCol) CLASS TMDI
           oBar:=::oBar
 
   ::oBar:=oBar
+
+  //
+  // IF oBar:nHeigth()><nAlto
+  //   oBar:SetSize(NIL,nHeigth+2,.T.)
+  // ENDIF
 
   __objAddData(oBar,"CARGO" )
   __objSendMsg(oBar,"CARGO",ARRAY(10))
@@ -822,6 +876,20 @@ METHOD ONCLOSE() CLASS TMDI
  ENDIF
 
 RETURN ::RunScript(::cOnClose)
+
+/*
+// Asocia otro objeto SCRIPT para ejecuta funciones Asociadas 08/02/2024
+*/
+METHOD SetFunction(cScript) CLASS TMDI
+
+  ::oFrom:=GetScript(cScript)
+
+  IF ::oFrom=NIL
+     COMPILA(cScript,nil) // compila y pasa a memoria
+     ::oFrom:=GetScript(cScript)
+  ENDIF
+
+RETURN ::oFrom
 
 
 FUNCTION BMPGETBTN(oBar,oFont,nAncho)
