@@ -276,6 +276,9 @@ CLASS TDpLbx FROM TDpClass
    METHOD New( cFileLbx, cTitle , cWhere , lPage , uValue)
    METHOD SetBar(oWnd,oBar,oBrw)
 
+   METHOD Replace(cField,uValue) INLINE EJECUTAR("LBXREPLACE",oLbx,cField,uValue)
+
+
    METHOD Set(cName,xValue) INLINE  (__objAddData( Self, cName),__objSendMsg(Self,cName,xValue))
 
    METHOD IsDef( cName )
