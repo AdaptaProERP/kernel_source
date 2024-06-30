@@ -24,6 +24,11 @@ FUNCTION DpLbx(cFileLbx,cTitle,cWhere,lPage,cField,uValue,aParam,lDialog,oDb,oGe
 
    oDp:lLbxRun:=.T.
 
+   // JN 19/01/2024, si el parametro no es enviado, asume BMPGET
+   IF oGet=NIL .AND. "BMPGET"$oDp:oControl:ClassName()
+      oGet:=oDp:oControl
+   ENDIF
+
    // MsgDemo()
 
    // Obtiene datos del Servidor Remoto
@@ -56,6 +61,8 @@ FUNCTION DpLbx(cFileLbx,cTitle,cWhere,lPage,cField,uValue,aParam,lDialog,oDb,oGe
 
      oDpLbx:Activate()
 
+     oDpLbx:oFontBrw:=oDpLbx:oBrw
+
      EJECUTAR("LBXINIRUN",oDpLbx) // Donde se Inician Todos los LBX
 
      // DpFocus(oDpLbx:oWnd)
@@ -64,6 +71,8 @@ FUNCTION DpLbx(cFileLbx,cTitle,cWhere,lPage,cField,uValue,aParam,lDialog,oDb,oGe
    // CLEA TYPE
 
    oDp:oLbx:=oDpLbx
+
+
 
 RETURN oDpLbx
 
@@ -131,6 +140,8 @@ CLASS TDpLbx FROM TDpClass
    DATA  cMessage    INIT ""
    DATA  cFileSql    INIT ""
    DATA  cPrgIni     INIT ""
+   DATA  cMemo       INIT "" // Contenido memo LBX contentivo de sus parámetros
+   DATA  cScript     INIT "" // Componente SCRIPT obtenido desde ::cMemo 29/06/2024
 
    DATA  cFilter_Log  INIT ""
    DATA  cFilter_text INIT "Activo"
@@ -213,6 +224,9 @@ CLASS TDpLbx FROM TDpClass
    DATA  oWndMain
    DATA  oLbx
    DATA  oFilterLog
+   DATA  oFontBtn
+   DATA  oFontBrw
+   DATA  oScript  // Contiene Script contentivo de las funciones de validación
 //INIT oLbx:=SELF
 
 
@@ -236,12 +250,13 @@ CLASS TDpLbx FROM TDpClass
    DATA  lExport     // Expotar
 // DATA  lChkSql     // Chequear SQL
    DATA  lSqlOk      // Si ok; Sigue
-   DATA  lTablaAcc INIT .T.  // Permisos de Acceso dede la Tabla
-   DATA  lGoBottom INIT .F.
-   DATA  lFullSize INIT .F.
+   DATA  lTablaAcc  INIT .T.  // Permisos de Acceso dede la Tabla
+   DATA  lGoBottom  INIT .F.
+   DATA  lFullSize  INIT .F.
    DATA  lFullHight INIT .F.
    DATA  lIniFilter INIT .F.
    DATA  lFullWidht INIT .F.
+   DATA  lBtnText   INIT .F.
 
    DATA  lDesc      INIT .F. // lDesc en la Clausula ORDER BY (CAMPOS DESC) genera Incidencai
 
@@ -271,7 +286,7 @@ CLASS TDpLbx FROM TDpClass
    METHOD RunAction(nButton,nOption,lRun)
    METHOD RunKey(nKey)
    METHOD GetValue(cField,oGet)
-   METHOD GotFocus() INLINE (oDp:oLbx:=SELF,oDp:cHelpRtf:=::cFileRtf,::oBrw:GotFocus())
+   METHOD GotFocus() INLINE (oDp:oLbx:=SELF,oDp:cHelpRtf:=::cFileRtf,::oBrw:GotFocus(),EJECUTAR("LBXGOTFOCUS",oDp:oLbx),::oBrw:SetFont(::oFontBrw),DPBAR_REFRESH(::oBar,FONTBNTBAR()))
 
    METHOD Query()    INLINE EJECUTAR("BRWMAKERRUN",::cTable)
    METHOD Find()
@@ -360,6 +375,11 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   LOCAL lHayTotales:=.F.
   LOCAL aTotales   :={}
   LOCAL lEditar    :={}
+  LOCAL cValid     :=""
+  LOCAL lIsTabMod  :=.T.
+  LOCAL nEdit      :=NIL  // tipo de Edición oCol:nEditType
+  LOCAL cInit      :=NIL  // Funcion Script que se ejecuta antes de Activar el Control, caso de LISTBOX, permite su preparación
+  LOCAL cAction    :=NIL  // Funcion para control
 
 //LOCAL lDialog:=.F. // !oDp:lMenuXp
 
@@ -441,7 +461,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   I           :=0
 
   IF I>0 .AND. !Empty(aMemos[I,2])
-     IniGetLbx(aMemos[I,2])
+     ::cMemo:=IniGetLbx(aMemos[I,2])
   ELSE
 
     // ? cFileLbx
@@ -453,7 +473,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
     ENDIF
 
     IF !ISDPSTD() .AND. !FILE(cFileLbx)
-     EJECUTAR("DPREGSOPORTEAUTO","EDT",cFileLbx,"Archivo "+cFileNoPath(cFileNoExt(cFileLbx))+" no Existe")
+      EJECUTAR("DPREGSOPORTEAUTO","EDT",cFileLbx,"Archivo "+cFileNoPath(cFileNoExt(cFileLbx))+" no Existe")
     ENDIF
 
        IF !FILE(cFileLbx) .AND. !ISDPSTD()
@@ -461,15 +481,12 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
        cFileLbx:="FORMS\LBXNOEXISTE.LBX"
     ENDIF
 
-
-
-
     IF FILE(cFileLbx) .OR. ISDPSTD()
 
        IF ISDPSTD()
-          IniGetLbx(GETFILESTD(cFileLbx))
+          ::cMemo:=IniGetLbx(GETFILESTD(cFileLbx))
        ELSE
-          IniGetLbx(MEMOREAD(cFileLbx))
+          ::cMemo:=IniGetLbx(MEMOREAD(cFileLbx))
        ENDIF
 
     ELSE // Busca en la Base de datos, en caso de Estar Creada
@@ -479,7 +496,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
          cFileLbx:="FORMS\LBXNOEXISTE.LBX"
        ENDIF
 
-       IniGetLbx(MEMOREAD(cFileLbx))
+       ::cMemo:=IniGetLbx(MEMOREAD(cFileLbx))
 
     ENDIF
 
@@ -559,6 +576,10 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   ::cIniFilter :=GetLbx("INIFILTER")   // Inicio de Filtro para evitar leer todos los registros
   ::lIniFilter :=CTOO(::cIniFilter,"L")
 
+  // boton con Textos
+  // 30/09/2023
+  ::lBtnText   :=GetLbx("BTNTEXT",.F.,"L")
+  ::lBtnText   :=CTOO(::lBtnText,"L")
 
   // Verifica si la tabla tiene Buscador Inicial
   oDp:lLbxIniFind:=CTOO(oDp:lLbxIniFind,"L")
@@ -627,7 +648,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
  //? cInner,cInner2,cInner3,cInner4,cInner5,ValType(cInner),ValType(cInner2),ValType(cInner3),ValType(cInner4),ValType(cInner5)
  // ? cInner
 
-  cInner       :=cInner+" "+cInner2+" "+cInner3+" "+cInner4+" "+cInner5
+  cInner    :=cInner+" "+cInner2+" "+cInner3+" "+cInner4+" "+cInner5
 
   cGroup    :=GetLbx("GROUP BY")
 
@@ -908,7 +929,13 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
      RETURN SELF
   ENDIF
 
+  EJECUTAR("LBXCOMPILA",Self) // 29/06/2024 Compila Contenido del archivo LBX
+
   CursorWait()
+
+//IF "DPINV"$UPPER(cSql)
+  //? "1",CLPCOPY(cSql)
+//ENDIF
 
   ::cTable    :=UPPE(ALLTRIM(cTable))
 
@@ -929,6 +956,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
   oDp:cSqlErr:=""
 
+  dpwrite("temp\"+cFileNoPath(cFileNoExt(cFileLbx))+".sql",cSql)
+
   IF (oOdbc:cType=="MSSQL" .OR. oOdbc:cType="ADS") .OR. "COUNT(*"$cSql
 //.OR.;
 //     (!oOdbc:cType=="MYSQL")
@@ -947,6 +976,11 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 // ? ::oDb:cName,"::oDb"
 
      ::oCursor    :=OpenTable(cSQL,.T.,::oDb)
+
+
+//IF "DPINV"$UPPER(cSql)
+  //? "2",CLPCOPY(cSql),oDp:cSql
+//ENDIF
 
 // ? oDp:cSqlErr,"oDp:cSqlErr"
 
@@ -972,7 +1006,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
 //::aFields:=ACLONE(::oCursor:aFields)
   ::aFields:=::oCursor:aFields
-  ::cWhere_:=::oCursor:cWhere // Copiar del Where
+  ::cWhere_:=::oCursor:cWhere   // Copiar del Where
+  lIsTabMod:=ISTABMOD(::cTable) // Permiso para modificar
 
   IF .F. // ya esta revisando anteriormente cSelect$cSql .AND. !ChkSql(cSql,NIL,.T.) .OR. Empty(::oCursor:aFields)
      ::oCursor:End()
@@ -1213,6 +1248,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
         oCol:=oBrw:AddCol()
         oCol:cHeader      := ::oCursor:FieldName( nFor )
+        oCol:cType        := ::oCursor:FieldType( nFor )
+        // oCol:bEditValue   := GenCursorData(Self,nFor) // 30/06/2024 necesario para editar la columna
         oCol:bLClickHeader:= GenHeadBlock(Self,nFor)
         oCol:bStrData     := GenCursorBlock(::oCursor , nFor , IIF(nFor=1,{||IIF(ValType(::oCursor)="O" .AND. oBrw:nArrayAt>0,::oCursor:GotoId(oBrw:nArrayAt),NIL)},NIL),SELF)
 
@@ -1225,6 +1262,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
            oCol:cEditPicture:= "99/99/9999"
         ENDIF
 
+        oCol:nColArray:=nFor // 30/06/2024
+
       NEXT
 
    ENDIF
@@ -1234,7 +1273,17 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
    FOR I := 1 TO Len(oBrw:aCols)
 
-      cHeader:=GetLbx("COL"+STRZERO(I,2)+"_HEADER")
+      cHeader :=GetLbx("COL"+STRZERO(I,2)+"_HEADER")
+      cValid  :=GetLbx("COL"+STRZERO(I,2)+"_VALID")
+      nEdit   :=GetLbx("COL"+STRZERO(I,2)+"_EDITTYPE",NIL,"N")
+      cInit   :=GetLbx("COL"+STRZERO(I,2)+"_INIT")               // funcion que se ejecuta Antes de Activar el GET, envia Objeto oCol
+      cAction :=GetLbx("COL"+STRZERO(I,2)+"_ACTION")
+
+      // 23/04/2024 , permite asociar macros para los encabezados, caso de precios. oDp:cPrecioA,oDp:cPrecioB,oDp:cPrecioC
+      IF ValType(cHeader)="C" .AND. LEFT(cHeader,1)="&"
+         cHeader:=SUBS(cHeader,2,LEN(cHeader))
+         cHeader:=MACROEJE(cHeader)
+      ENDIF
 
       IF ValType(cHeader)="C" .AND. ";"$cHeader
 
@@ -1265,8 +1314,8 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
       lEditar :=GetLbx("COL"+STRZERO(I,2)+"_EDIT" ,NIL,"L",NIL,.F.)
 
       // 14/05/2023
-      IF lEditar
-         AADD(::aColEdit,{I,::oCursor:FieldName(I)})
+      IF lIsTabMod .AND. (lEditar .OR. !Empty(cValid))
+         AADD(::aColEdit,{I,::oCursor:FieldName(I),cValid,nEdit,cInit,cPict,cAction})
       ENDIF
 
       nClrCol:=CTOO(nClrCol,"N")
@@ -1277,6 +1326,12 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 //      ENDIF
 
       oCol   :=oBrw:aCols[I]
+
+      oCol:cField   :=::oCursor:FieldName(I) // 30/06/2024 necesario para editar el campo
+      oCol:cFunction:=cValid // Nombre de la funcion LBXFIELDVALID
+      IF !Empty(cPict)
+        oCol:cEditPicture:=STRTRAN(cPict,",","") // 30/06/2024 necesario para editat el campo
+      ENDIF
 
       IF !EMPTY(cHeader)
          //cHeader:=IF("&"$cHeader,MacroEje(cHeader),cHeader) // JN 03/07/2018
@@ -1332,7 +1387,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
       IF lTotal .AND. !Empty(cPict)
          cPict:=STRTRAN(cPict,["],"")
          cPict:=ALLTRIM(cPict)
-         oCol:cEditPicture:=cPict
+         oCol:cEditPicture:=STRTRAN(cPict,",","") // 30/06/2024 Quitar , para editar en buscar
          oCol:cFooter:=TRAN(aTotales[I],cPict)
          //oCol:nFooterStrAlign:= AL_RIGHT
          oCol:nFootStrAlign:= AL_RIGHT
@@ -1380,7 +1435,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
       ENDIF
 
       IF !Empty(cPict)
-         oCol:cEditPicture:=cPict
+         oCol:cEditPicture:=STRTRAN(cPict,",","") // buscar sin picture
       ENDIF
 
    NEXT
@@ -1521,6 +1576,8 @@ METHOD LbxChange()
    ::oItem:Refresh(.T.)
 
    ::CancelFind()  // no puede seguir buscando
+
+   EJECUTAR("LBXCHANGE",Self)
    //::SetMsg("R:"+LSTR(::oCursor:RecNo())+"/"+LSTR(::oCursor:RecCount())) // Muestra Posición del Regitro
 
 RETURN .T.
@@ -1566,15 +1623,20 @@ METHOD SetOrder(nCol) CLASS TDpLbx
 
   CursorWait()
 
+
   // Invertir el Orden de la Columna jn 20/02/2018
   IF cField=::oCursor:cField_Order
      lDesc:=!::oCursor:lDesc
   ENDIF
 
+  // ? cField,nCol,"nAt",::oBrw:nColSel,"nColSel, setorder "
+
   ::oCursor:SetOrder(cField,lDesc)
 
+  // ? cField,nCol,"nAt",::oBrw:nColSel,"nColSel"
+
   ::oBrw:KeyBoard(VK_HOME)
-  ::oBrw:nColSel:=nCol
+  // 23/03/2024 ::oBrw:nColSel:=nCol
   ::oBrw:Refresh(.T.)
 
   // ? cField
@@ -1594,7 +1656,7 @@ METHOD ACTIVATE() CLASS TDpLbx
    LOCAL nAt,nBtnRun,cRun:=""
    LOCAL nTop :=oWnd:nTop
    LOCAL nLeft:=oWnd:nLeft
-   LOCAL aCoors
+   LOCAL aCoors,I
 
 //  LOCAL nClrPane:=::nClrPane1
 // ? ::cFieldFind,"<-::cFieldFind",::uFieldFind,"<-::uFieldFind"
@@ -1772,7 +1834,7 @@ METHOD ACTIVATE() CLASS TDpLbx
 //     oWnd:bGotFocus:={||IIF(!EMPTY(oDp:cMapaTab),oDpLbx:oWnd:oBar:aControls[1]:ForWhen(),NIL),oDpLbx:ChkData()}
 // 11/04/2016     oWnd:bGotFocus:={|| IIF(!EMPTY(oDp:cMapaTab), IF(ValType(oWnd)="O",oWnd:oBar:aControls[1]:ForWhen() , NIL) , NIL ), iif(ValType(oWnd)="O",oDpLbx:ChkData(),NIL)}
 
-     oWnd:bGotFocus :={||   PUBLICO("oDpLbx",oDpLbx), IIF(!EMPTY(oDp:cMapaTab), IF(ValType(oWnd)="O",oWnd:oBar:aControls[1]:ForWhen() , NIL) , NIL ), iif(ValType(oWnd)="O",oDpLbx:ChkData(),NIL)}
+     oWnd:bGotFocus :={|| oDpLbx:=SELF, EJECUTAR("LBXGOTFOCUS",oDpLbx),DPBAR_REFRESH(::oBar,::oFontBtn),PUBLICO("oDpLbx",oDpLbx), IIF(!EMPTY(oDp:cMapaTab), IF(ValType(oWnd)="O",oWnd:oBar:aControls[1]:ForWhen() , NIL) , NIL ), iif(ValType(oWnd)="O",oDpLbx:ChkData(),NIL)}
 //   oWnd:bLostFocus:={|| oDpLbx:CancelEdit()}
 
      oWnd:bLostFocus:={|| KILLFIND(::oBrw,NIL)}
@@ -1803,6 +1865,16 @@ METHOD ACTIVATE() CLASS TDpLbx
    ENDIF
 
    PUBLICO("oDpLbx",oDpLbx)
+
+   FOR I=1 TO LEN(::oBar:aControls)
+
+       IF "BTN"$::oBar:aControls[I]:ClassName()
+           // ::oBar:aControls[I]:SetFont(::oFontBtn)
+           ::oBar:aControls[I]:ForWhen(.T.)
+       ENDIF
+
+   NEXT I
+
 
 RETURN Self
 
@@ -1905,6 +1977,8 @@ METHOD Refresh(lAppend,uValue) CLASS TDpLbx
 
    ENDIF
 
+   DPBAR_REFRESH(::oBar,FONTBNTBAR()) // 13/10/2023
+
 RETURN NIL
 
 /*
@@ -1946,14 +2020,14 @@ METHOD Close() CLASS TDpLbx
 RETURN NIL
 
 METHOD SetBar(oWnd,oBar,oBrw) CLASS TDpLbx
-   LOCAL oCursor,I,aBtn:={},cBtnBmp,bBtnAction,bBtnWhen,cBtnTool,oBtn,cMessage,nOption
+   LOCAL oCursor,I,aBtn:={},cBtnBmp,bBtnAction,bBtnWhen,cBtnTool,oBtn,cMessage,nOption,cText
    LOCAL nAt,nBtnRun
    LOCAL oFont,oFontG,cAction,cWhen,cType //,cValMapa
    LOCAL cBtnOff,lBtnOff:=.T.,bWhen,cBuscar
    LOCAL oPopFind
    LOCAL oDpLbx:=Self
-   LOCAL nBtnHeight :=GetLbx("BTNHEIGHT"   ,NIL,"N")
-   LOCAL nBtnWidth  :=GetLbx("BTNWITH"     ,NIL,"N")
+   LOCAL nBtnHeight :=GetLbx("BTNHEIGHT"   ,NIL,"N",40)
+   LOCAL nBtnWidth  :=GetLbx("BTNWITH"     ,NIL,"N",40)
    LOCAL nBtnClrPane:=GetLbx("BTNCLRPANE"  ,NIL,"N")
    LOCAL nBtnClrText:=GetLbx("BTNCLRTEXT"  ,NIL,"N")
    LOCAL aBuscar    :=EJECUTAR("LBXRESTFIND",SELF,"FIND")
@@ -1962,19 +2036,34 @@ METHOD SetBar(oWnd,oBar,oBrw) CLASS TDpLbx
 //   nBtnHeight :=IIF( EMPTY(nBtnHeight), 35-1 , nBtnHeight )
 //   nBtnWidth  :=IIF( EMPTY(nBtnWidth ), 35-1 , nBtnWidth  )
 
+   IF oDp:lBtnText
 
-   nBtnHeight :=IIF( EMPTY(nBtnHeight), 40 , nBtnHeight )
-   nBtnWidth  :=IIF( EMPTY(nBtnWidth ), 40    , nBtnWidth  )
+     nBtnHeight :=oDp:nBtnHeight
+     nBtnWidth  :=oDp:nBtnWidth
+     ::lBtnText :=oDp:lBtnText
 
-   nBtnHeight :=40
-   nBtnWidth  :=40
+   ELSE
+
+
+     nBtnHeight :=IIF( EMPTY(nBtnHeight), 40 , nBtnHeight )
+     nBtnWidth  :=IIF( EMPTY(nBtnWidth ), 40 , nBtnWidth  )
+
+     // 02/10/2023
+     // nBtnHeight :=40
+     // nBtnWidth  :=40
+   ENDIF
 
    nBtnClrPane:=IIF(ValType(nBtnClrPane)!="N",NIL,nBtnClrPane)
    nBtnClrText:=IIF(ValType(nBtnClrText)!="N",NIL,nBtnClrText)
 
-   DEFINE FONT oFont NAME "Courier New" SIZE 0,-9
-
+   // DEFINE FONT oFont  NAME "Tahoma" SIZE 0,-9  BOLD
    DEFINE FONT oFontG NAME "Tahoma" SIZE 0,-10 BOLD
+
+
+   oFont:=FONTBNTBAR()
+
+   ::oFontBtn:=oFont
+   ::oBar    :=oBar
 
 
    // Jn Buscar Registro
@@ -2088,11 +2177,39 @@ ENDIF
         cBtnTool  :=GetLbx("BTN"+STRZERO(I,2)+"_TOOLTIP")
         cMessage  :=GetLbx("BTN"+STRZERO(I,2)+"_MESSAGE")
         nOption   :=VAL(GetLbx("BTN"+STRZERO(I,2)+"_OPTION",.T.))
+        cText     :=GetLbx("BTN"+STRZERO(I,2)+"_TEXT") // 30/09/2023
 
         DEFAULT cMessage:=cBtnTool
         DEFAULT cBtnTool:=cMessage
 
-        AADD(aBtn,{cBtnBmp,cAction,cWhen,cBtnTool,cMessage,nOption,cType,NIL})
+        IF Empty(cText) .AND. "XPRINT.BMP"$UPPER(cBtnBmp)
+           cText:="Imprimir"
+        ENDIF
+
+        IF Empty(cText) .AND. "XTOP.BMP"$UPPER(cBtnBmp)
+           cText:="Primero"
+        ENDIF
+
+        IF Empty(cText) .AND. "XSIG.BMP"$UPPER(cBtnBmp)
+           cText:="Avance"
+        ENDIF
+
+        IF Empty(cText) .AND. "XANT.BMP"$UPPER(cBtnBmp)
+           cText:="Anterior"
+        ENDIF
+
+        IF Empty(cText) .AND. "PREVIEW.BMP"$UPPER(cBtnBmp)
+           cText:="PreView"
+        ENDIF
+
+        IF Empty(cText)
+           cText:=_VECTOR(cBtnTool," ")
+           cText:=cText[1]
+        ENDIF
+
+        cText    :=IF(Empty(cText),cBtnTool,cText)
+
+        AADD(aBtn,{cBtnBmp,cAction,cWhen,cBtnTool,cMessage,nOption,cType,NIL,cText})
 
      ENDIF
 
@@ -2132,35 +2249,66 @@ ENDIF
       IF (nBtnClrPane!=NIL .AND. nBtnClrText!=NIL) .AND. ;
          (nBtnClrPane=0 .AND. nBtnClrText=0)
 
-      IF aBtn[I,7]="FIND" .AND. !oPopFind=NIL
+         IF aBtn[I,7]="FIND" .AND. !oPopFind=NIL
 
-        DEFINE BUTTON oBtn;
-               OF oBar;
-               NOBORDER;
-               FONT oFont;
-               FILENAME aBtn[I,1],NIL,cBtnOff;
-               MENU oPopFind;
-               ACTION (1=1)
+            IF ::lBtnText
 
-        oBtn:cToolTip:="Visualización 3D"
+              DEFINE BUTTON oBtn;
+                     OF oBar;
+                     NOBORDER;
+                     FONT oFont;
+                     FILENAME aBtn[I,1],NIL,cBtnOff;
+                     TOP PROMPT aBtn[I,9];
+                     MENU oPopFind;
+                     ACTION (1=1)
+            ELSE
+
+              DEFINE BUTTON oBtn;
+                     OF oBar;
+                     NOBORDER;
+                     FONT oFont;
+                     FILENAME aBtn[I,1],NIL,cBtnOff;
+                     MENU oPopFind;
+                     ACTION (1=1)
+
+            ENDIF
+
+//  oBtn:cToolTip:="Visualización 3D"
 
       ELSE
 
-//         DEFINE XBUTTON oBtn ;
-//                FILE aBtn[I,1],NIL,cBtnOff;
-//                TOOLTIP aBtn[I,5];
-//                OF oBar;
-//                SIZE nBtnWidth,nBtnHeight
 
+          IF ::lBtnText
+
+             DEFINE BUTTON oBtn;
+                    OF oBar;
+                    NOBORDER;
+                    FONT oFont;
+                    FILENAME aBtn[I,1],NIL,cBtnOff;
+                    TOP PROMPT aBtn[I,9];
+                    ACTION (1=1)
+
+          ELSE
+
+             DEFINE BUTTON oBtn;
+                    OF oBar;
+                    NOBORDER;
+                    FONT oFont;
+                    FILENAME aBtn[I,1],NIL,cBtnOff;
+                    ACTION (1=1)
+
+          ENDIF
+/*
  DEFINE BUTTON oBtn;
-               OF oBar;
-               NOBORDER;
-               FONT oFont;
-               FILENAME aBtn[I,1],NIL,cBtnOff;
-               ACTION (1=1)
+          OF oBar;
+          NOBORDER;
+          FONT oFont;
+          FILENAME "BITMAPS\edocuenta.BMP";
+          TOP PROMPT "E.Cuenta";
+          ACTION oCliECta:VEREDOCTA()
+*/
 
-
-      ENDIF
+         ENDIF
 
 
       ELSE
@@ -3383,7 +3531,6 @@ FUNCTION IniGetLbx(cValue,cFileLbx)
    DEFAULT cValue:=""
    aLines:=cValue
 
-
    IF !Empty(cFileLbx)
 
       DEFAULT aMemos:={}
@@ -3396,7 +3543,7 @@ FUNCTION IniGetLbx(cValue,cFileLbx)
 
    ENDIF
 
-RETURN NIL
+RETURN cValue
 
 /*
 // Devuelve lógico 1 o 2
@@ -3408,6 +3555,12 @@ RETURN {|uValue|uValue:= oCursor:FieldGet( nField ) , IIF( uValue , 1 , 2 )}
 STATIC FUNCTION GetFromLogic_Num( oCursor, nField )
 RETURN {|uValue|uValue:= oCursor:FieldGet( nField )>0 , IIF( uValue , 1 , 2 )}
 
+/*
+// 30/06/2024 Devuelve la data necesario para el Input oCol:bEditValue
+*/
+FUNCTION GenCursorData( oCursor, nField)
+   LOCAL bBlq:={|uValue| uValue:=oCursor:FieldGet( nField ) }
+RETURN bBlq
 
 /*
 // Genera las columnas como Bloques de Código
@@ -3684,6 +3837,38 @@ FUNCTION BUILDSUBC(cSubC,cCol)
    // cSubC:=CRLF+"("+cSubC+" LIMIT 1) AS  "+cCol+CRLF
 
 RETURN cSubC
+
+// 01/10/2023
+// Refrescar Botones
+FUNCTION DPBAR_REFRESH(oBar,oFontBtn)
+   LOCAL I
+
+   oBar:SetFont(oFontBtn)
+
+// ? "setfocus"
+
+   FOR I=1 TO LEN(oBar:aControls)
+
+// ? oBar:aControls[I]:ClassName()
+       IF "BTN"$oBar:aControls[I]:ClassName()
+           oBar:aControls[I]:SetFont(oFontBtn)
+           oBar:aControls[I]:ForWhen(.T.)
+       ENDIF
+
+   NEXT I
+
+RETURN .T.
+/*
+// 01/10/2023 Fuente para la barra de botones
+*/
+FUNCTION FONTBNTBAR()
+  LOCAL oFont
+
+
+  DEFINE FONT oFont  NAME "Tahoma" SIZE 0,-9  BOLD
+
+RETURN oFont
+
 
 /*
 // JN 28/08/2014
