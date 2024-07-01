@@ -124,36 +124,37 @@ CLASS TDpLbx FROM TDpClass
    DATA  cOrder      // Ordenado por
    DATA  cPreDelete
    DATA  cPostDelete
-   DATA  cTopic      // Nombre de la Tabla
-   DATA  cFileChm    // Nombre del Archivo de Ayuda
-   DATA  uFind       // Valor que Está Buscando
-   DATA  cFieldFound
-   DATA  cIniSql     // Ejecución Inicial SQL
-   DATA  cCargo      // Almacena Cualquier Valor
-   DATA  cScope      // Condicion de la Tabla
-   DATA  cTitle      // Titulo
-   DATA  cWhere      // Clausula Where
-   DATA  cFieldFind  // Campo de Búsqueda
-   DATA  cFileRtf    INIT "" // Archivo de Ayuda RTF
-   DATA  cFileRtfOld INIT oDp:cHelpRtf
-   DATA  cIniFilter  INIT "" // Inicia como buscador
-   DATA  cMessage    INIT ""
-   DATA  cFileSql    INIT ""
-   DATA  cPrgIni     INIT ""
-   DATA  cMemo       INIT "" // Contenido memo LBX contentivo de sus parámetros
-   DATA  cScript     INIT "" // Componente SCRIPT obtenido desde ::cMemo 29/06/2024
+    DATA  cTopic      // Nombre de la Tabla
+    DATA  cFileChm    // Nombre del Archivo de Ayuda
+    DATA  uFind       // Valor que Está Buscando
+    DATA  cFieldFound
+    DATA  cIniSql     // Ejecución Inicial SQL
+    DATA  cCargo      // Almacena Cualquier Valor
+    DATA  cScope      // Condicion de la Tabla
+    DATA  cTitle      // Titulo
+    DATA  cWhere      // Clausula Where
+    DATA  cFieldFind  // Campo de Búsqueda
+    DATA  cFileRtf    INIT "" // Archivo de Ayuda RTF
+    DATA  cFileRtfOld INIT oDp:cHelpRtf
+    DATA  cIniFilter  INIT "" // Inicia como buscador
+    DATA  cMessage    INIT ""
+    DATA  cFileSql    INIT ""
+    DATA  cPrgIni     INIT ""
+    DATA  cMemo       INIT "" // Contenido memo LBX contentivo de sus parámetros
+    DATA  cScript     INIT "" // Componente SCRIPT obtenido desde ::cMemo 29/06/2024
 
-   DATA  cFilter_Log  INIT ""
-   DATA  cFilter_text INIT "Activo"
+    DATA  cFilter_Log  INIT ""
+    DATA  cFilter_text INIT "Activo"
 
 
-   DATA  cItem    INIT "" // Cantidad de Registros
-   DATA  cItem1   INIT ""
-   DATA  cItem2   INIT ""
+    DATA  cItem    INIT "" // Cantidad de Registros
+    DATA  cItem1   INIT ""
+    DATA  cItem2   INIT ""
 
-   DATA  uValueFind  // Valor de Búsqueda
-   DATA  uValue1,uValue2,uData1,uData2
-   DATA  cSqlFilter // Necesario para rehacer la búsqueda
+    DATA  uValueFind  // Valor de Búsqueda
+    DATA  uValue1,uValue2,uData1,uData2
+    DATA  cSqlFilter // Necesario para rehacer la búsqueda
+
 
 
     DATA nClrText  INIT oDp:nGris // CLR_BLUE
@@ -276,8 +277,7 @@ CLASS TDpLbx FROM TDpClass
    METHOD New( cFileLbx, cTitle , cWhere , lPage , uValue)
    METHOD SetBar(oWnd,oBar,oBrw)
 
-   METHOD Replace(cField,uValue) INLINE EJECUTAR("LBXREPLACE",oLbx,cField,uValue)
-
+   METHOD Replace(cField,uValue,lRefresh) INLINE EJECUTAR("LBXREPLACE",self,cField,uValue,lRefresh)
 
    METHOD Set(cName,xValue) INLINE  (__objAddData( Self, cName),__objSendMsg(Self,cName,xValue))
 
@@ -324,6 +324,9 @@ CLASS TDpLbx FROM TDpClass
    METHOD OpenTable()
    METHOD CancelEdit()
    METHOD CancelFind()
+
+   METHOD RunScript(cFunction,nPar1,nPar2,nPar3,nPar4)
+   METHOD IsFunction(cFunction) INLINE ::oScript:IsFunction(cFunction)
 
    METHOD HandleEvent( nMsg, nWParam, nLParam ) EXTERN ;
                              WndHandleEvent( Self, nMsg, nWParam, nLParam )
@@ -379,6 +382,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
   LOCAL aTotales   :={}
   LOCAL lEditar    :={}
   LOCAL cValid     :=""
+  LOCAL nLENGTH    :=0
   LOCAL lIsTabMod  :=.T.
   LOCAL nEdit      :=NIL  // tipo de Edición oCol:nEditType
   LOCAL cInit      :=NIL  // Funcion Script que se ejecuta antes de Activar el Control, caso de LISTBOX, permite su preparación
@@ -1279,6 +1283,7 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
       cHeader :=GetLbx("COL"+STRZERO(I,2)+"_HEADER")
       cValid  :=GetLbx("COL"+STRZERO(I,2)+"_VALID")
       nEdit   :=GetLbx("COL"+STRZERO(I,2)+"_EDITTYPE",NIL,"N")
+      nLENGTH :=GetLbx("COL"+STRZERO(I,2)+"_LENGTH"  ,NIL,"N")
       cInit   :=GetLbx("COL"+STRZERO(I,2)+"_INIT")               // funcion que se ejecuta Antes de Activar el GET, envia Objeto oCol
       cAction :=GetLbx("COL"+STRZERO(I,2)+"_ACTION")
 
@@ -1329,6 +1334,16 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 //      ENDIF
 
       oCol   :=oBrw:aCols[I]
+
+      IF nLENGTH=0
+         nLENGTH:=::oCursor:FieldLen(I)
+      ENDIF
+
+      IF nLENGTH>0
+         oCol:nLen:=nLENGTH
+      ENDIF
+
+      oCol:lSelectAll:=.F. // no Select ALL cuando Edita la Columna
 
       oCol:cField   :=::oCursor:FieldName(I) // 30/06/2024 necesario para editar el campo
       oCol:cFunction:=cValid // Nombre de la funcion LBXFIELDVALID
@@ -2725,13 +2740,50 @@ METHOD GetValue(cField,oGet,bBlq,uAdd,uValue) CLASS TDpLbx
 
 RETURN lFound // NIL
 
+/*
+// Ejecuta Función del Script
+*/
+METHOD RunScript(cFunction,uPar1,uPar2,uPar3,uPar4,uPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11)  CLASS TDpLbx
+
+  LOCAL lResp:=.t.
+
+  ::Prepare()
+
+  IF !ValType(::oScript)="O"
+     ::SetScript(::cScript)
+  ENDIF
+
+  IF !ValType(::oScript)="O"
+     MensajeErr("Script"+::cScript,"No Está Compilado en Memoria ")
+     RETURN NIL
+  ENDIF
+
+  IF !::oScript:IsFunction(cFunction)
+
+     ::MensajeErr("Función : "+cFunction+" No Existe en  "+::oScript:cProgram)
+
+  ELSE
+
+     ::oScript:cError:=""
+
+     lResp:=::oScript:Run(cFunction,uPar1,uPar2,uPar3,uPar4,uPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11)
+
+     // ? ::oScript:cError,"Error",oDp:cMsgError
+
+     IF !Empty(::oScript:cError)
+         MensajeErr(::oScript:cError,::cScript+ "FUNCTION "+cFunction)
+     ENDIF
+
+  ENDIF
+
+RETURN lResp
+
 
 /*
  *  OnError()
  */
-METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11 ) CLASS TDpLbx
-
-  LOCAL cErrorLog,cMsg,lScript:=.F.,J,N //,oFrameDp
+METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11,nPar12,nPar13 ) CLASS TDpLbx
+  LOCAL cErrorLog,cMsg,lScript:=.F.
   LOCAL lResp:=.F.
 
   cMsg   := ALLTRIM(UPPE(__GetMessage()))
@@ -2739,12 +2791,16 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
   if Left( cMsg, 1 ) == "_" // Asignar Valor
 
       cMsg:=Subs(cMsg,2,Len(cMsg))
-      __objAddData( Self, cMsg )
+      __objAddData(Self, cMsg )
       __objSendMsg(Self ,cMsg , uValue)
+
+   ELSE
+
+     uValue:=::RunScript(cMsg,uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,nPar11,nPar12,nPar13)
 
    ENDIF
 
-RETURN NIL
+RETURN uValue
 
 
 STATIC FUNCTION GetValue(cField,oCursor,uAdd)
@@ -3058,10 +3114,18 @@ RETURN lFound
 METHOD RunKey(nKey) CLASS TDpLbx
     LOCAL nAt
     LOCAL bBlq:={||.T.}
+    LOCAL oCol:=::oBrw:aCols[::oBrw:nColSel]
 
     // JN esta en busqueda inicial , Presionar C genera "Concultar"
     IF !Empty(::cIniFilter) .AND. ::oCursor:Recno()=1
         RETURN .T.
+    ENDIF
+
+// 30/06/2024
+// ? nkey,oCol:cValid
+
+    IF nkey=13  .AND. !Empty(oCol:nEditType)
+       RETURN .T.
     ENDIF
 
     DO CASE
