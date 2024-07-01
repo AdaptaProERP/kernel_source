@@ -1335,15 +1335,18 @@ METHOD New( cFileLbx , cTitle , cParWhere , lPage , cField , uValue , aParam,lDi
 
       oCol   :=oBrw:aCols[I]
 
-      IF nLENGTH=0
+      oCol:lSelectAll:=.T.
+
+      IF nLENGTH=0 .AND. ::oCursor:FieldType(I)="C"
          nLENGTH:=::oCursor:FieldLen(I)
       ENDIF
 
       IF nLENGTH>0
          oCol:nLen:=nLENGTH
+         oCol:lSelectAll:=.F.
       ENDIF
 
-      oCol:lSelectAll:=.F. // no Select ALL cuando Edita la Columna
+      // oCol:lSelectAll:=.F. // no Select ALL cuando Edita la Columna
 
       oCol:cField   :=::oCursor:FieldName(I) // 30/06/2024 necesario para editar el campo
       oCol:cFunction:=cValid // Nombre de la funcion LBXFIELDVALID
