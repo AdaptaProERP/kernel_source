@@ -1,6 +1,6 @@
-// ivillarro@cantv.net
 /*
 // Incluido en la Ejecución de DpNmWin
+// Desarrollado por Juan Navas 03/01/2003
 */
 
 #INCLUDE "\DPNMWIN\INCLUDE\DPXBASE.CH"
@@ -9,13 +9,7 @@ REQUEST __SETFORMAT,TRDDARRAY
 
 MEMVAR oDp,nResult,lVariac
 MEMVAR VARIAC,FCHDESDE,FCHHASTA,TIP_NOM,OTRA_NOM,VAR1,ISR_ASIG,ASIGNA,DEDUCC,oNMTABVAC,oNMTABLIQ,VARMEMO
-// MEMVAR TABDESDE,TABHASTA,TABDIAS
 MEMVAR nFactor1,nFactor2,nFactor3,nFactor4,VAROBSERV
-// MEMVAR SALARIOBAS,PRESTAC
-
-//FUNCTION MYPRG()
-//RETURN .T.
-
 
 /*
  * Tnomina
@@ -156,6 +150,7 @@ CLASS TNOMINA // FROM TDpClass
    DATA nPromedioD                         // Promedios en Prenómina D
    DATA nConceptos INIT 0                  // Indica la Cantidad de Conceptos Ejecutados en Function conceptos
    DATA nHoras     INIT 0 // Cantidad de Horas Durante Periodo de Pago
+   DATA nDivisa    INIT 1 // Valor divisa
 
    DATA nBaseA                           // Sólo Asignaciones y Deducc A
    DATA nBaseB                           // Sólo Asignaciones y Deducc B
@@ -1699,7 +1694,11 @@ METHOD Calcular() CLASS TNOMINA
           AADD(::aErrors,::cError)
        ENDIF
 
-       nResult:=REDONDEA(nResult*IIF(LEFT(cCodCon,1)="D",-1,1))
+       IF ::aConceptos[nCon,13]
+          nResult:=REDONDEA(nResult*IIF(LEFT(cCodCon,1)="D",-1,1))
+       ELSE
+          nResult:=nResult*IIF(LEFT(cCodCon,1)="D",-1,1)
+       ENDIF
 
        IF nResult==0 // Sin Resultado, Valores Vacios no se Graban
          LOOP
@@ -2035,9 +2034,19 @@ METHOD Compila() CLASS TNOMINA
    LOCAL aCampos   :={"CON_SEMANA","CON_QUINCE","CON_MENSUA","CON_OTRA","CON_CATORC"}
    LOCAL oTable    :=OpenTable("SELECT * FROM NMTRABAJADOR",.F.),oLink
    LOCAL aFields   :={}
-   LOCAL cComp
+   LOCAL cComp,oDb
 
 //? ValType(::aListCon),"::aListCon"
+
+   IF !EJECUTAR("ISFIELDMYSQL",oDb,"NMCONCEPTOS","CON_REDOND")
+
+     oDb:=OpenOdbc(oDp:cDsnData)
+     EJECUTAR("DPCAMPOSADD" ,"NMCONCEPTOS","CON_REDOND","L",01,0,"Redondeo")
+     cSql:=[UPDATE NMCONCEPTOS SET CON_REDOND=1 WHERE CON_REDOND IS NULL]
+     oDb:EXECUTE(cSql)
+
+   ENDIF
+
 
    ::aConceptosErr:={}
 
@@ -2104,7 +2113,7 @@ METHOD Compila() CLASS TNOMINA
  // ? ::cFields,"::cFields"
 // ? cCampo,"cCampo"
 
-   cSql:="SELECT CON_CODIGO,CON_DESCRI,CON_FORMUL,CON_REPRES,CON_MENSAJ,CON_ISLR,CON_DEPURA "+;
+   cSql:="SELECT CON_CODIGO,CON_DESCRI,CON_FORMUL,CON_REPRES,CON_MENSAJ,CON_ISLR,CON_DEPURA,CON_REDOND "+;
          "FROM NMCONCEPTOS "+cCampo +" ORDER BY CON_CODIGO"
 
 // ? CLPCOPY(cSql)
@@ -2205,7 +2214,8 @@ METHOD Compila() CLASS TNOMINA
                          0,;
                          0,;
                          !EMPTY(oConcepto:CON_MENSAJ),;
-                         oConcepto:CON_DEPURA})
+                         oConcepto:CON_DEPURA,;
+                         oConcepto:CON_REDOND})
 
 //    IF oConcepto:CON_NORMAL // Conceptos
 //       AADD(::aConceptosA,oConcepto:CON_CODIGO)                         // Conceptos (Sueldo Normal)
