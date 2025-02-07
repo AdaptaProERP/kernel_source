@@ -36,7 +36,7 @@ CLASS TDOCENC
     DATA aFind        // Controles Find
     DATA aDataTable
     DATA aSayGroup INIT ARRAY(250)
-
+    DATA aFieldsC  INIT {} // 29/12/2025
 //    DATA HANDLEEVENT
 
     DATA oTable
@@ -107,9 +107,11 @@ CLASS TDOCENC
     DATA cScope_Update INIT NIL // Scope para Where de Update
     DATA cFieldAud     INIT ""  // Pistas de Auditoría
     DATA cFileEdt
-    DATA cFileBrwZ     INIT ""
+    DATA cFileBrwZ    INIT ""
     DATA cTextGroup   INIT ""
     DATA cOnClose     INIT "ONCLOSE"
+    DATA cFieldChkSum INIT ""
+    DATA cDsnData     INIT oDp:cDsnData
 
     // DATA INIT AS NUMERIC nFileMain
     DATA nFileMain AS NUMERIC INIT 0
@@ -141,17 +143,26 @@ CLASS TDOCENC
     DATA lOkJn
     DATA lValUnique // Validar
     DATA lAutoInc
-    DATA lSavedDsn   INIT .F.
-    DATA lEOF        INIT .T.
-    DATA lBOF        INIT .F.
-    DATA lCancel     INIT .F. // JN 19/09/2016
+    DATA lSavedDsn      INIT .F.
+    DATA lEOF           INIT .T.
+    DATA lBOF           INIT .F.
+    DATA lCancel        INIT .F. // JN 19/09/2016
+    DATA lCancelClic    INIT .F. // JN 22/08/2023 Indica si el boton Cancelar fue Utilizado necesario para validaciones bLostFocus
     DATA lCreaRegIntRef INIT .T.
     DATA lRecordSeltor  INIT .T.
     DATA lLock          INIT .T.
     DATA lMsgErr        INIT .T. // Muestra el mensaje de Error del DPCBTE
     DATA lOPENSIZE      INIT .F. // Auto Size, Auto Ajusta el Browse y Dialog
+    DATA lRegFiscal     INIT .F. // Registro Fiscal, debe guardar pista de auditoria enscriptada
+    DATA lDsnData       INIT .T.
+
+
+    DATA lBtnText       INIT .F.  // Texto para los Botones
 
     DATA lMdiBar        INIT .F. // En caso .T. La Barra de botones sera ampliada
+
+    DATA lBtnIncRun     INIT .F. // Incluir fue activado desde el boton. Difiere de autoincluir luego de finalizar, esto es necesario cuando se factura con impresora fiscal,
+                                 // debe validar que la factura fue impresa y aun esta en recibo de ingreso
 
     DATA lInc INIT .T.
     DATA lCon INIT .T.
@@ -173,11 +184,12 @@ CLASS TDOCENC
     METHOD New( cTitle , cVarName , cFileEdit )
     METHOD Windows(nTop,nLeft,nWidth,nHeight)
     METHOD Activate(bInit,bEnd)
-    METHOD BtnSetMnu(cBtn,cOption,cFunction) INLINE AADD(::aBtnMnu,{cBtn,cOption,cFunction}) // Opciones para ser Incluidas en los Botones
+    METHOD BtnSetMnu(cBtn,cOption,cFunction,cBtnText) INLINE AADD(::aBtnMnu,{cBtn,cOption,cFunction,cBtnText}) // Opciones para ser Incluidas en los Botones
 
 
     METHOD EditFile() INLINE ::nFileMain:=EJECUTAR("DPFILEEMPMAIN",::nFileMain,::cTitleFile,::cTable,::nOption=0,nil,nil,nil,SELF)
 
+    METHOD CTOMEMO(cKey,lHead,cSep) INLINE EJECUTAR("TDOCENCMEMO",Self,lHead,cSep,cKey)
     METHOD LockTable( )
 /*
 INLINE  (::oTable:=IF(::oTable=NIL,Opentable("SELECT * FROM "+::cTable,.F.,::oDb),::oTable),;
@@ -227,6 +239,8 @@ INLINE  (::oTable:=IF(::oTable=NIL,Opentable("SELECT * FROM "+::cTable,.F.,::oDb
     METHOD SETOPENSIZE() INLINE ::lOPENSIZE:=.T.
     METHOD OPENSIZE()
 
+    METHOD ISDOCMODFISCAL() INLINE EJECUTAR("ISDOCMODFISCAL",SELF) // modificar
+    METHOD ISDOCNULFISCAL() INLINE EJECUTAR("ISDOCNULFISCAL",SELF) // Anular Documento Fiscal
 
 //  METHOD BtnWhen()
 /*
@@ -352,6 +366,7 @@ METHOD New(cTitle, cVarName , cFileEdit) CLASS TDOCENC
      ::cEliminar   :=MI("Eliminar" ,604)
      ::cBuscar     :=MI("Buscar"   ,605)
 
+
      ::aScrollGets :={}
      ::aDpEdit     :={}
      ::aBtnNew     :={} // Botones Adicionales
@@ -453,7 +468,7 @@ METHOD Find() CLASS TDOCENC
             oGet:Select( Len(aOptions))
             oGet:nAt:=LEN(aOptions)
 
-// oGet:bChange:=FrmFindBlq(Self,oGet,::aFields[I,1],::cScrFind)
+//  oGet:bChange:=FrmFindBlq(Self,oGet,::aFields[I,1],::cScrFind)
 // ? "aquies combo",oGet:ClassName()
 
          ELSE
@@ -709,7 +724,7 @@ RETURN NIL
 // Botones Adicionales
 // nPos:=Indica la Posición
 */
-METHOD AddBtn(cFile,cText,cWhen,cAction,cFind,nPos,cKey) CLASS TDOCENC
+METHOD AddBtn(cFile,cText,cWhen,cAction,cFind,nPos,cKey,cBtnText) CLASS TDOCENC
 
    DEFAULT cFind:="OTHER",cText:="",cWhen:="oDoc:nOption=0",cAction:="MsgAlert('OK')",cKey:="KEY"
 
@@ -718,16 +733,16 @@ METHOD AddBtn(cFile,cText,cWhen,cAction,cFind,nPos,cKey) CLASS TDOCENC
    ENDIF
 
 //   ? "CWHEN->",cWhen,"ACTION->",cAction
-   AADD(::aBtnNew,{NIL  ,cFile         ,cText            ,cAction                 ,cWhen                        , {||.T.} ,"OTHER",cFind,cKey })
+   AADD(::aBtnNew,{NIL  ,cFile         ,cText            ,cAction                 ,cWhen                        , {||.T.} ,"OTHER",cFind,cKey ,cBtnText})
 //   AADD(::aBtn   ,{NIL,"xNew.bmp"    ,"Incluir  "      ,"oDoc:LoadData(1)"      ,"oDoc:nOption =0"  , {||.T.} ,"NEW"  ,"Inc" })
 
 RETURN NIL
 
-METHOD AddBtnEdit(cFile,cText,cWhen,cAction,cFind,nPos,cKey) CLASS TDOCENC
+METHOD AddBtnEdit(cFile,cText,cWhen,cAction,cFind,nPos,cKey,cBtnText) CLASS TDOCENC
 
    DEFAULT cFind:="OTHER",cText:="",cWhen:="oDoc:nOption=0",cAction:="MsgAlert('OK')",cKey:="cKey"
 
-   AADD(::aBtnEdit,{NIL  ,cFile         ,cText            ,cAction                 ,cWhen                        , {||.T.} ,"OTHER",cFind,cKey })
+   AADD(::aBtnEdit,{NIL  ,cFile         ,cText            ,cAction                 ,cWhen                        , {||.T.} ,"OTHER",cFind,cKey,cBtnText })
 
 RETURN NIL
 
@@ -785,6 +800,10 @@ ENDIF
 // ? cWhere,"cWhere",::cScope,"::cScope"
 
     // lResp:=DPBRWPAG(cList,NIL,@uValue,::cPrimary,.T.,::cScope,cTitle,::oDb,cOnlyWhere)
+
+    cTitle:=CTOO(cTitle,"C")
+    cTitle:=ALLTRIM(cTitle)
+
     lResp:=DPBRWPAG(cList,NIL,@uValue,::cPrimary,.T.,cWhere,cTitle,::oDb,cOnlyWhere,cJoin)
 
     SETDBSERVER()
@@ -1034,7 +1053,7 @@ METHOD PreDelete() CLASS TDOCENC
 
     ::cSqlDelete:=NIL
 
-    IF ::RunScript("PREDELETE")
+    IF ::RunScript("PREDELETE") .AND. !::ISDOCNULFISCAL()
 
        CursorWait()
 
@@ -1101,7 +1120,7 @@ METHOD GetWhereMax(cField , cWhere , lMax) CLASS TDOCENC
 
 // DEFAULT cWhere:=::cScope,lMax:=.T.
 // ? "3",::cScope,ErrorSys(.T.)
-// ? cField,"4"
+// ? cField,"4",GETPROCE()
 
    IF !","$cField
 
@@ -1239,6 +1258,23 @@ METHOD GetWhereMax(cField , cWhere , lMax) CLASS TDOCENC
 
    NEXT I
 
+   // 26/06/2024 , cWhere vacio, buscara el ultimo registro
+/*
+   cWhere:=ALLTRIM(cWhere)
+   cWhere:=IF(cWhere=="WHERE","",cWhere)
+
+   IF Empty(cWhere) .AND. !(","$cField)
+      cSql  :="SELECT "+cField+" FROM "+::cTable+" ORDER BY "+cField+" DESC LIMIT 1"
+      oTable:=OpenTable(cSql, .T. ,::oDb )
+      uValue:=oTable:FieldGet(1)
+
+      IF !Empty(uValue)
+        cWhere:=" WHERE "+cField+GetWhere( "=" , uValue )
+      ENDIF
+
+      oTable:End()
+   ENDIF
+*/
  // ? "AQUI TERMINO OK",cWhere
 
 RETURN cWhere
@@ -1334,7 +1370,23 @@ METHOD Skip(nSkip) CLASS TDOCENC
            cWhere:=" WHERE "+cWhere
        ENDIF
 
-       cSql:="SELECT "+::cOrderBy+" FROM "+::cTable+" "+cWhere
+       // ? cWhere,"cWhere"
+
+       // 26/06/2024 Caso de Alicuotas de IVA , eliminar registro generaba incidencia por falta cWhere
+       cWhere:=ALLTRIM(cWhere)
+
+       IF LEN(cWhere)=5 .OR. cWhere=="WHERE"
+
+          cSql:="SELECT "+::cOrderBy+" FROM "+::cTable+" ORDER BY "+::cOrderBy+" DESC LIMIT 1"
+
+       ELSE
+
+          cSql:="SELECT "+::cOrderBy+" FROM "+::cTable+" "+cWhere
+
+       ENDIF
+
+       // ? cSql,"cSql",cWhere,"cWhere",LEN(cWhere)
+       //  26/06/2024 cSql:="SELECT "+::cOrderBy+" FROM "+::cTable+" "+cWhere
 
        oTable2:=OpenTable( cSql , .T. ,::oDb)
        oTable2:End()
@@ -1565,6 +1617,10 @@ METHOD Cancel(lAsk)
 
    DEFAULT lAsk:=.T. // Debe Preguntar
 
+   ::lCancelClic:=.T.
+
+//?  "AQUI CANCEL"
+
    IF ::nOption=5
      ::CancelFind()
    ENDIF
@@ -1791,6 +1847,8 @@ METHOD LoadData(nOption , nNext , lStart , cWhere)  CLASS TDOCENC
      DEFAULT lStart:=.F.
 
      ::aDataTable:={}
+
+     ::lCancelClic:=.F.
 
      IF ::nOption<>1
        ::lAutoInc:=.F.
@@ -2042,7 +2100,7 @@ RETURN aResp
 */
 METHOD PreSave(lSave) CLASS TDOCENC
    LOCAL lResp:=.T.,aIntRef:={}
-   LOCAL I,cVar,oGet,uValue
+   LOCAL I,cVar,oGet,uValue,cKeyAudita
 
    LOCAL cWhere:=::GetWhere()
    LOCAL cKey  :=::cPrimary
@@ -2089,7 +2147,23 @@ METHOD PreSave(lSave) CLASS TDOCENC
 
       ENDIF
 
-      AUDITAR( IF(::nOption=1,"DINC","DMOD") , NIL ,::cTable , uKey , NIL, SELF )
+// ? cKey,::cPrimary,"cKey,::cPrimary",GETPROCE(),uKey
+// ViewArray(::aFields)
+      oDp:cKeyEncrip:=""
+      cKeyAudita    :=""
+
+      IF ::cTable="DPDOCCLI" .AND. ::Get("DOC_DOCORG")="V"
+        cKeyAudita:=REGFISCAL(::CTOMEMO(uKey,.T.)) // crear texto del registro
+      ENDIF
+
+      // ? cKeyAudita,"cKeyAudita"
+
+      AUDITAR( IF(::nOption=1,"DINC","DMOD") ,!::lDsnData ,::cTable , uKey , NIL, SELF ,NIL,NIL,cKey,NIL,cKeyAudita)
+
+      // Incluye productos , movimiento de Productos
+      IF !Empty(cKeyAudita) // ::cTable="DPDOCCLI" .AND. ::DOC_DOCORG="V" // ingresó por DPFACTURAV
+         VALIDARDOCFISCAL(NIL,NIL,NIL,NIL,NIL,.F.,uKey) // solo Cuerpo de factura
+      ENDIF
 
       IF ::nOption=1
          ::lOkJn=.T.
@@ -2312,6 +2386,10 @@ METHOD Save()
    ::oTable:=oTable
    oTable:lAppend:=.F.
 
+   // 29/12/2025
+   oTable:aFieldsC    :=::aFieldsC
+   oTable:cFieldChkSum:=::cFieldChkSum
+
    IF ::lCreaRegIntRef
       oTable:lCreaRegIntRef:=.F. // Ya lo ejecutó
    ENDIF
@@ -2354,7 +2432,7 @@ METHOD Save()
 
       ENDIF
 
-   //   ? cWhere,"BUSCAR",COUNT(::cTable,cWhere)
+//    ? cWhere,"BUSCAR",COUNT(::cTable,cWhere),getproce()
 
       IF COUNT(::cTable,cWhere,::oDb)>0
          ::lSaved:=.T.
@@ -2430,7 +2508,14 @@ METHOD Save()
         ::RunScript(::cCommit,oTable)
       ENDIF
 
+      // 27/02/2024
+      IF !Empty(cWhere)
+         cWhere:=cWhere+" LIMIT 1"
+      ENDIF
+
       lResp:=oTable:Commit(cWhere) // Actualizar
+
+// ? cWhere,"cWhere",oDp:cSql,::nOption,"nOption",lAppend,"lAppend",GETPROCE()
 
    ENDIF
 
@@ -2477,13 +2562,12 @@ METHOD SetScript(cScript)
       ::cScript:=VP("SCRPROGRAM")
    ENDIF
 
-   IF ValType(::oScript)!="O"
+   IF ValType(::oScript)!="O" .OR. Empty(::oScript:aFunctions)
      ::oScript:=GETRUNSCRIP(::cScript)
      // ::oScript:=GetScript()
    ENDIF
 
-RETURN NIL
-
+RETURN ::oScript
 /*
 // Mostrar Textos
 */
@@ -2697,6 +2781,9 @@ METHOD SetTable(cTable , cPrimary , cWhere , lAll, cInner,oDb,cOrderBy,lDesc) CL
    oTable:End()
 
    ::oTable:=oTable
+
+   ::cDsnData:=oTable:oOdbc:cName        // JN 24/01/2024
+   ::lDsnData:=(::cDsnData=oDp:cDsnData) // JN 24/01/2024
 
 //? "AQUI TERMINA SETTABLE",oTable:nSeconds
 
@@ -2915,7 +3002,9 @@ METHOD ACTIVATE(bInit,bEnd)  CLASS TDOCENC
                      oDlg:SetSize(::oWnd:nWidth-7,::oWnd:nHeight-(oDlg:oMsgBar:nHeight*1.5)+2,.T.),;
                      oDoc:oWnd:Show());
             ON RESIZE (oDlg:SetSize(::oWnd:nWidth-7,::oWnd:nHeight-(oDlg:oMsgBar:nHeight*1.5)+2),.t.);
-            VALID (IIF(EVAL(bEnd),(lSalir:=.T.,oDoc:End()),.F.))
+            VALID (IIF(EVAL(bEnd),(lSalir:=.T.,oDoc:End()),.F.));
+            ON MOVE EJECUTAR("BRWMOVED",oDoc:oWnd,oDoc);
+            ON DOWN EJECUTAR("BRWMOVED",oDoc:oWnd,oDoc)
 
    IF ::lOPENSIZE
       oDoc:OPENSIZE()
@@ -2989,7 +3078,7 @@ RETURN lResp
 // Crear Botones
 */
 METHOD PutBar() CLASS TDOCENC
-   LOCAL I,oBtn,n:=5,cFileG,u,nAt,oFont,oMenu,oCursor
+   LOCAL I,oBtn,n:=5,cFileG,u,nAt,oFont,oMenu,oCursor,cText
    LOCAL aOpc:={"Inc","Con","Mod","Eli","Prn"}
 
    IF !::lBar
@@ -3000,6 +3089,8 @@ METHOD PutBar() CLASS TDOCENC
    ::Prepare()
 
    DEFINE CURSOR oCursor HAND
+
+   DEFINE FONT oFont NAME "Tahoma" SIZE 0, -09 BOLD
 
    DEFINE BUTTONBAR ::oBar 3D SIZE ::nBtnWidth,::nBtnHeight OF ::oDlg
 
@@ -3028,13 +3119,13 @@ METHOD PutBar() CLASS TDOCENC
    AADD(::aButtons,{NIL,"xCancel.BMP"  ,MI("Cancelar ",615)      +CRLF+MI("Tecla",600)+" [Esc]"    ,"oDpEdit:Cancel(.t.),oDpEdit:Load(0)     "       ,"oDpEdit:nOption!=0"  , {||.T.} ,"CANCEL"   ,27})
 */
 
-   AADD(::aBtn  , {NIL,"xNew.bmp"    ,MI("Incluir"  ,601)+" (I)"      ,"oDoc:LoadData(1)                     "      ,"oDoc:nOption =0 .AND. oDoc:lInc "  , {||IIF( ::nOption=0,.T.,.F.)} ,"NEW"  ,"Inc",STR(DP_CTRL_I) })
+   AADD(::aBtn  , {NIL,"xNew.bmp"    ,MI("Incluir"  ,601)+" (I)"      ,"oDoc:lBtnIncRun:=.T.,oDoc:LoadData(1),oDoc:lBtnIncRun:=.F.","oDoc:nOption =0 .AND. oDoc:lInc "  , {||IIF( ::nOption=0,.T.,.F.)} ,"NEW"  ,"Inc",STR(DP_CTRL_I) })
 
    IF ::lView
      AADD(::aBtn  , {NIL,"View.bmp"  ,MI("Consultar",602)+" (C)"   ,"oDoc:LoadData(2)                     "      ,"oDoc:nOption =0  .AND. oDoc:lView"  , {||.T.} ,"VIEW" ,"Con",STR(DP_CTRL_V) })
    ENDIF
 
-   AADD(::aBtn  , {NIL,"xEdit.bmp"   ,MI("Modificar",603)+" (M)"      ,"oDoc:LoadData(3)                     "      ,"oDoc:nOption =0 .AND. oDoc:lMod"  , {||.T.} ,"EDIT" ,"Mod",STR(DP_CTRL_M) })
+   AADD(::aBtn  , {NIL,"xEdit.bmp"   ,MI("Modificar",603)+" (M)"      ,"oDoc:LoadData(3)                     "  ,"oDoc:nOption =0 .AND. oDoc:lMod .AND. oDoc:ISDOCMODFISCAL()"  , {||.T.} ,"EDIT" ,"Mod",STR(DP_CTRL_M) })
 
    IF ::lFind
      AADD(::aBtn  , {NIL,"xFind.bmp" ,MI("Buscar",605)+"(B)"      ,"oDoc:Find()                     "      ,"oDoc:nOption =0"  , {||.T.} ,"FIND" ,"Bus",STR(DP_CTRL_B) })
@@ -3124,12 +3215,32 @@ METHOD PutBar() CLASS TDOCENC
 
       ELSE
 
-        DEFINE BUTTON oBtn OF ::oBar;
-               ACTION 1=1;
-               MENU oMenu;
-               NOBORDER;
-               FILE "BITMAPS\"+::aBtn[I,2],NIL,"BITMAPS\"+cFileG;
-               TOOLTIP ::aBtn[I,3]
+        IF ::lBtnText
+
+          cText:=::aBtn[I,3]
+          nAt  :=AT(" ",cText)
+          cText:=IF(nAt>0,LEFT(cText,nAt),cText)
+
+
+          DEFINE BUTTON oBtn OF ::oBar;
+                 ACTION 1=1;
+                 MENU oMenu;
+                 NOBORDER;
+                 FILE "BITMAPS\"+::aBtn[I,2],NIL,"BITMAPS\"+cFileG;
+                 TOP PROMPT cText;
+                 FONT oFont;
+                 TOOLTIP ::aBtn[I,3]
+
+        ELSE
+
+          DEFINE BUTTON oBtn OF ::oBar;
+                 ACTION 1=1;
+                 MENU oMenu;
+                 NOBORDER;
+                 FILE "BITMAPS\"+::aBtn[I,2],NIL,"BITMAPS\"+cFileG;
+                 TOOLTIP ::aBtn[I,3]
+
+        ENDIF
 
         oBtn:SetSize(::nBtnWidth+10,::nBtnHeight,.T.)
 
@@ -3196,7 +3307,8 @@ METHOD PutBar() CLASS TDOCENC
      ::RECCOUNT(.T.)  // Obtiene la Cantidad de Registros
   ENDIF
 
-  DEFINE FONT oFont NAME GetSysFont() SIZE 0, -10 BOLD
+  // DEFINE FONT oFont NAME GetSysFont() SIZE 0, -10 BOLD
+  DEFINE FONT oFont NAME "Tahoma" SIZE 0, -10 BOLD
 
 // nAt:=32
 // AEVAL(::oBar:aControls,{|o,n|nAt:=nAt+o:nWidth() })
@@ -3212,7 +3324,8 @@ METHOD PutBar() CLASS TDOCENC
 
   IF ::lRecordSeltor
 
-     @ .8,0 SAY ::oSayRecord PROMPT " Registro "+CRLF+" R:"+LSTR(::nRecNo)+"/"+LSTR(::nRecCount) PIXEL SIZE nAt,18*2 BORDER FONT oFont
+     @ .8,0 SAY ::oSayRecord PROMPT " Registro "+CRLF+" R:"+LSTR(::nRecNo)+"/"+LSTR(::nRecCount) PIXEL SIZE nAt,18*2 BORDER FONT oFont;
+            OF ::oBar
 
     IF ValType(::oSayRecord)="O"
        ::oSayRecord:Hide()
@@ -3455,6 +3568,9 @@ METHOD  GetValue(cField) CLASS TDOCENC
      AEVAL(aFields,{|a,i|uValue:=uValue+CTOO(::Get(a),"C")})
   ENDIF
 
+// ViewArray(aFields)
+// ? uValue,GETPROCE()
+
 RETURN uValue
 
 /*
@@ -3563,12 +3679,30 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
        ::SetScript(::cScript)
     ENDIF
 
+    //IF ::oScript:cProgram<>::cScript .OR. Empty(::oScript:aFunctions)
+    ::SetScript(::cScript)
+    // ENDIF
+
+    // 19/09/2023
+
+    IF Empty(::oScript:aFunctions)
+// ? LEN(::oScript:aFunctions),"LEN(::oScript:aFunctions), Debe compilar ",::oScript:cProgram
+       ::oScript:=DPSCRIPTRUN(::oScript:cProgra)
+// XCOMPILA(cProgram)
+// ? ::oScript:cProgram,"::oScript:cProgram"
+    ENDIF
+
+// ? ::cScript,::oScript:cProgram
+
     IF !::oScript:IsFunction(cMsg)
+
+// ? LEN(::oScript:aFunctions),"LEN(::oScript:aFunctions)"
+//  ViewArray(::oScript:aFunctions)
 
         cScrRun:=VP("SCRPROGRAM")
         cScrRun:=IIF( ValType(cScrRun)<>"C" , ::cScript , cScrRun )
 
-        MensajeErr(cMsg+" sin Declaración"+;
+        MensajeErr(cMsg+" sin Declaración "+::oScript:cProgram+;
                    CRLF+"DpXbase:"+::cScript , "DpXbase Run:"+cScrRun+" / "+::ClassName())
 
         // MensajeErr("REQUIERE COMPILAR "+::cScript+CRLF+"Función o Variable "+cMsg+" no Existe "+::CLASSNAME())
@@ -3661,6 +3795,7 @@ FUNCTION ISFRMIDRUN(cId,cVarName,aData)
   ENDIF
 
 RETURN nAt>0
+
 
 
 
