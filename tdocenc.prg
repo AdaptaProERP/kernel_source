@@ -239,6 +239,7 @@ INLINE  (::oTable:=IF(::oTable=NIL,Opentable("SELECT * FROM "+::cTable,.F.,::oDb
     METHOD SETOPENSIZE() INLINE ::lOPENSIZE:=.T.
     METHOD OPENSIZE()
 
+    METHOD ISDOCINCFISCAL() INLINE EJECUTAR("ISDOCINCFISCAL",SELF) // Incluir
     METHOD ISDOCMODFISCAL() INLINE EJECUTAR("ISDOCMODFISCAL",SELF) // modificar
     METHOD ISDOCNULFISCAL() INLINE EJECUTAR("ISDOCNULFISCAL",SELF) // Anular Documento Fiscal
 
@@ -1969,11 +1970,17 @@ METHOD LoadData(nOption , nNext , lStart , cWhere)  CLASS TDOCENC
 // Aeval(::aGrids,{|oGrid|oGrid:NewJob(::nOption,.T.)})
 // Aeval(::aScrollGets,{|o|o:UpdateFromForm()})
 
-     IF !IIF(!Empty(::cLoad) , ::RunScript(::cLoad) , .T.  ) // Ejecuta Carga de Datos
+     //IF ::ISDOCINCFISCAL() // Solo para documentos fiscales 02/01/2025
+     //
+    // ELSE
+
+      IF !IIF(!Empty(::cLoad) , ::RunScript(::cLoad) , .T.  ) // Ejecuta Carga de Datos
         // ::Cancel(.F.)
         ::nOption:=nOldOpc
         RETURN .F.
-     ENDIF
+      ENDIF
+
+     // ENDIF
 
      IF ::nOption<>0 // Debe Apagar los Botones
 
