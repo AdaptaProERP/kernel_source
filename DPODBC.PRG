@@ -736,7 +736,7 @@ ELSE
 
   IF oOdbc:FILE("DPVISTAS")
 
-    oTablas := OpenTable("SELECT * FROM DPVISTAS ",.T.,oODbc )
+    oTablas := OpenTable("SELECT * FROM DPVISTAS WHERE VIS_ACTIVO=1 ",.T.,oODbc )
 /*
   DO({||!oTablas:Eof()},NIL,{||AADD(oDp:aVistas,{oTablas:VIS_VISTA,;
                                               ALLTRIM("VIEW_"+UPPER(oTablas:VIS_VISTA)),;
@@ -1254,6 +1254,10 @@ FUNCTION Checktable(cNumTab,lDrop,lDroptable,lIni,lSay,cDsn,oOdbc)
         oOdbc:CreateTableDp(cTabla,aStruct,oDp:cDbEngine)
 
         SysRefresh(.T.)
+
+        IF oOdbc:File(cTabla) .OR. oOdbc:File(uppe(alltrim(cTabla)))
+           RETURN .T.
+        ENDIF
 
      ENDIF
 
@@ -1934,6 +1938,17 @@ FUNCTION GETOPTIONS(cTable,cField,lSort,lNinguno)
 RETURN aValues
 
 /*
+// necesario para optimizar por campo  oCol:aOpcColor 28/02/2025
+*/
+FUNCTION GETOPCCOLOR(cTable,cField,lSort,lNinguno)
+  LOCAL aItems:=GETOPTIONS(cTable,cField,lSort,lNinguno)
+  LOCAL aNew  :={}
+
+  AEVAL(aItems,{|a,n| AADD(aNew,{ALLTRIM(a),oDp:aClrOptions[n]}) })
+
+RETURN aNew
+
+/*
 // Elimina Registro de la Tabla
 */
 FUNCTION DELETESQL(cTable,cWhere,oOdbc)
@@ -2409,5 +2424,65 @@ FUNCTION MS_CREATEDATABASE(cDb)
    oOdbc:End()
 
 RETURN .T.
+
+/*
+// Revisa si la Clave Esta Indexada
+*/
+FUNCTION CHKINDEX(cTable,cField,cTabRef)
+  LOCAL lIndex:=.T.
+  LOCAL cCommand,oIndice,cIndice
+
+  cCommand:=SQLGET("DPCAMPOS","CAM_COMMAN","CAM_TABLE"+GetWhere("=",cTable)+;
+            " AND CAM_NAME"+GetWhere("=",cField))
+
+  IF !EMPTY(cCommand).AND."PRIMARY"$UPPE(cCommand)
+     RETURN .T.
+  ENDIF
+
+  oIndice:=OpenTable("SELECT * FROM DPINDEX WHERE IND_TABLA"+GetWhere("=",cTable)+;
+                     " AND IND_CLAVE"+GetWhere("=",cField)+;
+                     " ORDER BY IND_INDICE",.T.)
+
+  IF oIndice:RecCount()=0
+
+//   cIndice:=DPSQLGETMAX("DPINDEX","IND_INDICE","IND_TABLA"+GetWhere("=",cTable))
+     cIndice:=SQLINCREMENTAL("DPINDEX","IND_INDICE","IND_TABLA"+GetWhere("=",cTable))
+
+
+     IF EMPTY(cIndice)
+
+        cIndice:=ALLTRIM(cTable)+"1"
+
+     ELSE
+
+        cIndice:=DPINCREMENTAL32(cIndice,.F.)
+
+        IF ISALLDIGIT(cIndice)
+           cIndice:=cTable+"_"+cIndice
+        ENDIF
+
+//      cIndice:=ALLTRIM(cIndice)
+//      cIndice:=cTable+ALLTRIM(STR(VAL(RIGHT(cIndice,1)+1),2))
+
+     ENDIF
+
+     oIndice:Append()
+     oIndice:lAuditar:=.F.
+     oIndice:REPLACE("IND_TABLA" ,cTable )
+     oIndice:REPLACE("IND_CLAVE" ,cField )
+     oIndice:REPLACE("IND_INDICE",cIndice)
+     oIndice:REPLACE("IND_DESCRI","Int/Ref:"+cTabRef)
+     oIndice:REPLACE("IND_NUMTAB",SQLGET("DPTABLAS","TAB_NUMERO","TAB_NOMBRE"+GetWhere("=",cTable)))
+     oIndice:COMMIT()
+     lIndex:=.F.
+
+  ENDIF
+
+  oIndice:End()
+
+  EJECUTAR("BUILDINDEX",cTable) // Solicita la generacion del Indice
+
+RETURN .T.
+
 
 // EOF

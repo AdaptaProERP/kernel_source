@@ -163,6 +163,8 @@ CLASS TXBrwColumn
                         // aBitmaps[n, 3] -> width
                         // aBitmaps[n, 4] -> heigth
 
+   DATA aOpcColor INIT {} // JN Opciones y Colores. {VALOR,COLOR} desde DPCAMPOSOPC, previanmente precargado desde BRWRESTOREPAR
+
 #ifdef __HARBOUR__
    DATA aEditListTxt,;  // Array with all the literals to be shown on the Edit listbox
         aEditListBound  // Array with all the data to bound to the the edit get
@@ -342,6 +344,7 @@ CLASS TXBrwColumn
 
    // JN
    METHOD VarPut(uValue,lRefresh)
+   METHOD RUN(cFunction,uPar1,uPar2,uPar3,uPar4,uPar5) INLINE ::oBrw:RUN(cFunction,uPar1,uPar2,uPar3,uPar4,uPar5) // 15/03/2025
 
    METHOD HandleEvent( nMsg, nWParam, nLParam ) EXTERN ;
                              WndHandleEvent( Self, nMsg, nWParam, nLParam )
@@ -369,6 +372,7 @@ CLASS TXBrwColumn
 
    METHOD IsVisible( lComplete ) INLINE ( ! ::lHide .and. ::oBrw:IsDisplayPosVisible( ::nPos, lComplete ) )
    METHOD RefreshFooter() // JN 21/04/2016
+   METHOD OpcGetColor(uValue) // JN 21/04/2016
 
 //   METHOD PaintFooter( nRow, nCol, nHeight, lInvert )  // 21/04/2016
 //   METHOD PaintHeader( hDC, aCols, nLast, hWhitePen, hGrayPen, hColPen )
@@ -399,6 +403,8 @@ METHOD New( oBrw, uValue ) CLASS TXBrwColumn
 
    ::nDisplayCol    := 0
    ::nCreationOrder := len( oBrw:aCols ) + 1
+
+   ::nColArray      :=::nCreationOrder // jn 21/11/2024
 
    ::lAllowSizing := .t.
 
@@ -590,7 +596,7 @@ METHOD DataHeight() CLASS TXBrwColumn
    endif
 
    if ::bBmpData != nil
-      nBmp  := Eval( ::bBmpData )
+      nBmp  := Eval( ::bBmpData,Self )
       if nBmp > 0 .and. nBmp <= len( ::aBitmaps )
          nHeight := Max( nHeight, ::aBitmaps[ nBmp, BITMAP_HEIGHT ] )
       endif
@@ -628,7 +634,7 @@ METHOD DataWidth() CLASS TXBrwColumn
    endif
 
    if ::bBmpData != nil
-      nBmp  := Eval( ::bBmpData )
+      nBmp  := Eval( ::bBmpData,Self )
       if nBmp > 0 .and. nBmp <= len( ::aBitmaps )
          nWidth += ::aBitmaps[ nBmp, BITMAP_WIDTH ] + BMP_EXTRAWIDTH
       endif
@@ -860,18 +866,18 @@ METHOD PaintData( nRow, nCol, nHeight, lHighLite, lSelected, nOrder ) CLASS TXBr
    endif
 
    if ::bBmpData != nil
-      nBmpNo := Eval( ::bBmpData )
+      nBmpNo := Eval( ::bBmpData,Self )
    else
       nBmpNo := 0
    endif
 
    if !lHighLite
-      aColors := Eval( ::bClrStd )
+      aColors := Eval( ::bClrStd,Self ) // JN SELF
    else
       if ::oBrw:hWnd == GetFocus()
-         aColors   := Eval( ::bClrSelFocus )
+         aColors   := Eval( ::bClrSelFocus,Self )
       else
-         aColors := Eval( ::bClrSel )
+         aColors := Eval( ::bClrSel ,Self)
       endif
    endif
 
@@ -996,7 +1002,7 @@ METHOD EraseData( nRow, nCol, nHeight, hBrush, lFixHeight ) CLASS TXBrwColumn
    endif
 
    if hBrush == nil
-      aColors  := Eval( ::bClrStd )
+      aColors  := Eval( ::bClrStd , Self )
       hBrush   := CreateSolidBrush( aColors[ 2 ] )
       lCreated := .t.
    endif
@@ -1448,7 +1454,7 @@ METHOD Edit( nKey ) CLASS TXBrwColumn
    DEFAULT ::cEditPicture := ""
 
    uValue  := Eval( ::bEditValue )
-   aColors := Eval( ::bClrEdit )
+   aColors := Eval( ::bClrEdit, self )
    lCenter := ( ::nDataStrAlign == AL_CENTER )
    lRight  := ( ::nDataStrAlign == AL_RIGHT )
 
@@ -1829,6 +1835,8 @@ METHOD ShowBtnList( nKey ) CLASS TXBrwColumn
        nCol--
    ENDDO
 
+   ::nWidthL:=::nWidth // Asume el Ancho de la Columa replanteada JN 10/01/2024
+
    ::oEditLbx:Move(nRow, nCol+1, ::nWidthL, nHeight, .t. )
    ::oEditLbx:SetFocus()
 
@@ -2173,6 +2181,19 @@ METHOD RefreshFooter() CLASS TXBrwColumn
 
 return nil
 //------------------------------------------------------------------//
+METHOD OpcGetColor(uValue) CLASS TXBrwColumn
+  LOCAL nAt,nClrText:=0
+
+  uValue:=ALLTRIM(uValue)
+  nAt   :=ASCAN(::aOpcColor,{|a,n| uValue==a[1]})
+
+  IF nAt>0
+    nClrText:=::aOpcColor[nAt,2]
+  ENDIF
+
+  // aOpcColor
+RETURN nClrText
+
 
 // jn static
 FUNCTION FontHeight( oBrw, oFont )

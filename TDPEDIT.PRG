@@ -38,6 +38,8 @@ STATIC aEdit   :={} // Lista de Formularios que Seran Eliminados por Timer/Main
 MEMVAR oDp,oBrw,oCursor,oBody,oDpEdit,oCol,oEditGet,oTable
 MEMVAR oWnd,oDlg,cFileEdit,cVarName,cFieldName
 
+MEMVAR oFrm // 09/09/2023
+
 REQUEST OCLONE
 
 /*
@@ -57,6 +59,7 @@ CLASS DPEDIT // FROM TDPCLASS
    DATA lDialog     INIT .F.   // Si el Formulario no es MDI solo Dialogo
    DATA lEdit
    DATA lFirst INIT .F.
+   DATA lSetColorGroup INIT .T.
    DATA lSaveHead    // Indica que el Encabezado ya fué Grabado
    DATA lMdi
    DATA lActivated
@@ -145,7 +148,8 @@ CLASS DPEDIT // FROM TDPCLASS
    DATA cView        // Programa Consultar
    DATA cLoad        // Programa de Carga de Datos
    DATA cAfterLoad INIT "AFTERLOAD" // ejecutar luego del Load
-   DATA cWhere       // Condición del Campo que se Modifica
+   DATA cWhere       INIT ""  // Condición del Campo que se Modifica
+   DATA cListWhere   INIT ""  // 02/01/2024
    DATA cDataKey     // Clave del registro
    DATA cPrint       // Programa que Ejecuta la Impresión
    DATA cDelete      // Función que Ejecuta Eliminar
@@ -172,6 +176,8 @@ CLASS DPEDIT // FROM TDPCLASS
    DATA cVarName     INIT "" // Necesario  BRRUNNEW/DPXBASE
    DATA cOnClose     INIT "ONCLOSE"
    DATA cTextGroup   INIT ""
+   DATA cKeyAudita   INIT "" // Campo clave para el registro de Auditoría
+   DATA cFieldRef    INIT "" // CAMPO REFERENCIA INV_DESCRI
 
    DATA cBtnList     INIT "xbrowse.bmp"
 
@@ -224,6 +230,7 @@ CLASS DPEDIT // FROM TDPCLASS
    DATA oSayRecord // Muestra en la Super de la Barra la Posición
    DATA oAdjustWnd   // Ajusta el Control según
    DATA oBar         // Contiene Controles
+   DATA oBtn_Font    // Fuente de la Barra
 
    DATA nNumLbx     // Número del ListBox Que llamó al Formulario
    DATA nNumEdit
@@ -239,6 +246,7 @@ CLASS DPEDIT // FROM TDPCLASS
    DATA bInit        // Ejecución Cuando se Inicia el Dialogo
    DATA bKeyF10
    DATA bPostRun    init {||NIL}
+   DATA bResized    INIT {||NIL} // 13/05/2023 Mover consultas dinámicas
 
    DATA bLostFocus  // JN 06/11/2016
    DATA bGotFocus   // Recuperación de Focus
@@ -287,6 +295,9 @@ CLASS DPEDIT // FROM TDPCLASS
 
    METHOD GetPos( cName )
    METHOD Release()
+
+   METHOD SETCOLORSAY(nClrText,nClrPane)
+
 
    METHOD BtnSetMnu(cBtn,cOption,cFunction,cFileBmp,cPrgSubmenu) INLINE AADD(::aBtnMnu,{cBtn,cOption,cFunction,cFileBmp,cPrgSubmenu}) // Opciones para ser Incluidas en los Botones
 
@@ -354,6 +365,7 @@ CLASS DPEDIT // FROM TDPCLASS
    METHOD Inspect() INLINE EJECUTAR("INSPECT",Self)
    METHOD SetScript(cScript)
    METHOD AdjustWnd(oControl) INLINE ::oAdjustWnd:=oControl
+   METHOD ViewDef() INLINE EJECUTAR("VIEWDEF",SELF)
 
    METHOD ONCLOSE()
 
@@ -607,6 +619,8 @@ METHOD New(cTitle, cFile , cVarPublic , lWindows , lDialog , oWnd , lModal, lOnl
    ::cVarPublic:=ALLTRIM(UPPE(cVarPublic))
    //::cVarName  :=::cVarPublic
 
+   PUBLICO("oFrm",Self) // 09/09/2023
+
    IF !Empty(::cScript)
       ::oScript   :=GetScript(::cScript)       // obtiene el Script de Ejecución
    ELSE
@@ -679,6 +693,10 @@ METHOD DEFBTN() CLASS DPEDIT
    AADD(::aButtons,{NIL,"xFind.bmp"    ,MI("Buscar  " ,605)+CRLF+MI("Tecla",600)+" [B]"   ,"oDpEdit:Find(3)                         "      ,"oDpEdit:nOption =0"  , {||.T.} ,"FIND"   ,66 })
 // AADD(::aButtons,{NIL,"xBrowse.bmp"  ,MI("Listar"   ,606)+CRLF+MI("Tecla",600)+" [L]"   ,"oDpEdit:List()                          "      ,"oDpEdit:nOption =0"  , {||.T.} ,"LIST"  ,76 })
 
+   IF ValType(::oTable)="O" .AND. COUNT("DPVIEWGRU","VIG_TABLA"+GetWhere("=",::oTable:cTable))>0
+         AADD(::aButtons,{NIL,"viewdef.bmp"  ,MI("Consulta Definible",602)+CRLF+MI("Tecla",600)+" [C]"   ,"oDpEdit:ViewDef(0)   "      ,"oDpEdit:nOption =0 .AND. oDpEdit:lCon"  , {||.T.} ,"VIEW"   ,67 })
+   ENDIF
+
    AADD(::aButtons,{NIL,::cBtnList     ,MI("Listar"   ,606)+CRLF+MI("Tecla",600)+" [L]"   ,"oDpEdit:List()                          "      ,"oDpEdit:nOption =0"  , {||.T.} ,"BROWSE"  ,76 })
 // cBtnList
 
@@ -697,7 +715,7 @@ METHOD DEFBTN() CLASS DPEDIT
    AADD(::aButtons,{NIL,"xSalir.BMP"   ,MI("Cerrar   ",612)+CRLF+MI("Tecla",600)+" [Esc]"    ,"oDpEdit:ONCLOSE(),oDpEdit:nOption:=0,oDpEdit:Close()      "       ,"oDpEdit:nOption =0"  , {||.T.}  ,"CLOSE"  , 27})
    AADD(::aButtons,{NIL,"xSave.BMP"    ,MI("Grabar   ",613)+CRLF+MI("Tecla",600)+" [F10]"    ,"oDpEdit:Save()                          "       ,"oDpEdit:nOption!=0.and.oDpEdit:nOption!=4"  , {||.T.} ,"SAVE" , 0 })
    AADD(::aButtons,{NIL,"paste.BMP"    ,MI("pegar Búsquedas",614)+CRLF        ,"oDpEdit:Paste(),oDpEdit:Load(0)     "       ,"oDpEdit:lPaste .AND. oDpEdit:nOption=4"  , {||.T.} ,"PASTE"   ,27})
-   AADD(::aButtons,{NIL,"xCancel.BMP"  ,MI("Cancelar ",615)      +CRLF+MI("Tecla",600)+" [Esc]"    ,"oDpEdit:Cancel(.t.),oDpEdit:Load(0)     "       ,"oDpEdit:nOption!=0"  , {||.T.} ,"CANCEL"   ,27})
+   AADD(::aButtons,{NIL,"xCancel.BMP"  ,MI("Cancelar ",615)      +CRLF+MI("Tecla",600)+" [Esc]"    ,"CursorWait(),oDpEdit:Cancel(.t.),oDpEdit:Load(0)     "       ,"oDpEdit:nOption!=0"  , {||.T.} ,"CANCEL"   ,27})
 
 RETURN SELF
 
@@ -743,6 +761,23 @@ METHOD SETSCRIPT(cScript)  CLASS DPEDIT
      ::cScript:=cScript
 
 RETURN ::oScript
+
+METHOD SETCOLORSAY(nClrText,nClrPane,oDlg)  CLASS DPEDIT
+     LOCAL I,oObj
+
+     DEFAULT oDlg:=::oDlg
+
+     FOR I=1 TO LEN(::oDlg:aControls)
+
+        oObj:=::oDlg:aControls[I]
+
+        IF oObj:Classname()="TSAY"
+           oObj:SetColor(nClrText,nClrPane)
+        ENDIF
+
+     NEXT I
+
+RETURN NIL
 
 /*
 // Iniciación
@@ -970,9 +1005,11 @@ METHOD ONCLOSE() CLASS DPEDIT
    ::oScript   :=GetScript(::cScript)
  ENDIF
 
- IF ::oScript=NIL
+ IF !ValType(::oScript)="O"
     RETURN .F.
  ENDIF
+
+// ? ::oScript:ClassName(),::cOnClose,GETPROCE(), "INCIDENCIA GUARDANDO PROGRAMA"
 
  IF !::oScript:IsFunction(::cOnClose)
     RETURN .F.
@@ -1164,7 +1201,7 @@ RETURN .T.
 // Recuperar Focus
 */
 METHOD GotFocus(lAuto)
-   LOCAL nLastKey:=::oDlg:nLastKey
+   LOCAL nLastKey:=::oDlg:nLastKey,I,oBtn
 
    DEFAULT lAuto:=.F.
 
@@ -1199,6 +1236,21 @@ METHOD GotFocus(lAuto)
    ENDIF
 
    AEVAL(::aBrwFocus,{|a,n| EJECUTAR("BRWGOTFOCUS",a)})
+
+   IF ValType(::oBar)="O" .OR. ValType(::oBtn_Font)="O" .AND. ValType(oBar:aControls)="A"   // Fuente de la Barra
+
+     FOR I=1 TO LEN(::oBar:aControls)
+
+       oBtn:=::oBar:aControls[I]
+
+       IF "BTN"$oBtn:ClassName()
+          oBtn:SETFONT(::oBtn_Font)
+       ENDIF
+
+     NEXT I
+
+   ENDIF
+
 
    // FRMBRWGOTFOCUS(Self)  // Recupera las Posiciones del Browse
 
@@ -2091,7 +2143,9 @@ METHOD CreateWindow(cIcon,nTop,nLeft,nRight,nBottom) CLASS DPEDIT
       DEFINE WINDOW ::oWnd MDICHILD TITLE "Cargando... "+::cTitle ; // FROM nTop,nLeft TO nRight,nBottom; //
              FROM nTop,nLeft TO 1,180-180;
              NOMAXIMIZE PIXEL OF DpWndMain();
-             COLOR  0 , GetSysColor( COLOR_BTNFACE ) //,; // CLR_LIGHTGRAY,;
+             COLOR nClrText,nClrPane
+             // FONT oDp:oFontMenu
+             // COLOR  0 , GetSysColor( COLOR_BTNFACE ) //,; // CLR_LIGHTGRAY,;
 
       ::oWnd:cCaption:=::cTitle
 
@@ -2146,7 +2200,11 @@ METHOD CreateWindow(cIcon,nTop,nLeft,nRight,nBottom) CLASS DPEDIT
       DEFINE WINDOW ::oWnd MDICHILD TITLE ::cTitle ; // FROM nTop,nLeft TO nBottom,nRight;
              PIXEL OF DpWndMain();
              FROM nTop,nLeft TO 0,0;
+             COLOR nClrText,nClrPane
+
+/*;
              COLOR  0 , GetSysColor( COLOR_BTNFACE ) //,; // CLR_LIGHTGRAY,;
+*/
 
       SET MESSAGE OF ::oWnd
 
@@ -2599,6 +2657,7 @@ METHOD Activate(bInit,bValid,lErrorSys) CLASS DPEDIT // [JN]
   // DEFAULT bInit  :={||.T.}
   LOCAL nNumEdit,aPoint
 
+
   ::lMdi:=lMdi
 
 
@@ -2729,8 +2788,8 @@ ENDIF
                         IF(   oEdit:lMdiBar,oEdit:SETBOTBAR(),NIL),;
                         IF(Empty(oEdit:aScrollSize),NIL, TScrWnd():New(oEdit:oDlg,oEdit:aScrollSize[1],oEdit:aScrollSize[2],oEdit:aScrollSize[3],oEdit:aScrollSize[4])),;
                         AjustaDlg(oWnd,oDlg,nTop,nLeft,nBottom,nRight,oEdit),;
-                        EJECUTAR("SETCOLORTOGROUP",oEdit:oDlg,oEdit));
-                        ON RESIZE (oDlg:SetSize(::oWnd:nWidth-7,::oWnd:nHeight-IIF( ::lMsgBar, (::oDlg:oMsgBar:nHeight*1.5)+2,0)));
+                        IF(oEdit:lSetColorGroup,EJECUTAR("SETCOLORTOGROUP",oEdit:oDlg,oEdit),NIL));
+                        ON RESIZE (oDlg:SetSize(::oWnd:nWidth-7,::oWnd:nHeight-IIF( ::lMsgBar, (::oDlg:oMsgBar:nHeight*1.5)+2,0)),EVAL(oEdit:bResized));
                 VALID (lSalir:=oEdit:ValidWnd(bValid),;
                        IIF(lSalir,(SaveDlg(oDlg,.t.,oEdit:cFileEdit,oEdit:lDesign,NIL,NIL,oEdit),oEdit:CloseAllEdit(),::oDlg:End(),::oDlg:aControls:=NIL,oDlg:=NIL,oEdit:End(),.T.),.F.))
 
@@ -2978,16 +3037,38 @@ METHOD RunScr(cProgram)  CLASS DPEDIT
    PRIVATE oTable :=::oTable
    PRIVATE oDpEdit:=Self
 
-
-
+// oDp:oFrameDp:SetText(cProgram+" "+::oScript:cProgram)
 // cTest:="oDpEdit:"+cProgram+"()"
 // ? cProgram,"cProgram",::cScript," DE DPEDIT",::oScript:cProgram
 
+   IF (ValType(cProgram)="C" .AND. !EMPTY(cProgram)) .AND. ::oScript=NIL
+      ::oScript:=COMPILA(::cScript,.T.)
+   ENDIF
+
+   IF ValType(::oScript)="O"  .AND. !::oScript:IsFunction(cProgram)
+      ::oScript:=COMPILA(::cScript,.T.)
+   ENDIF
+
    IF ValType(cProgram)="C" .AND. !EMPTY(cProgram)
+
       SETSCRIPT(::oScript)
 
+      IF !ValType(::oScript)="O"
+         ::oScript:=COMPILA(::cScript,.T.)
+      ENDIF
+
+      IF !ValType(::oScript)="O"
+         ::oScript:=GETSCRIPT(::cScript)
+      ENDIF
+
+      IF !ValType(::oScript)="O"
+        MensajeErr("FUNCTION "+cProgram+" no existe en "+::cScript)
+        RETURN .F.
+      ENDIF
+
       IF !::oScript:IsFunction(cProgram)
-         RETURN NIL
+        MensajeErr("FUNCTION "+cProgram+" no existe en "+::oScript:cProgram)
+        RETURN NIL
       ENDIF
 
       VP("SCRRUNFUNCTION",cProgram) // Nombre de la Funcion
@@ -3418,11 +3499,32 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
       __QQPUB(::cVarPublic)
       PUBLICO(::cVarPublic,Self)
 
+      // 24/04/2023
+      IF !ValType(::oScript)="O"
+         ::oScript:=GetScript(::cScript)
+      ENDIF
+
+      // ? ::oScript:cProgram,"cProgram, 1",cMsg
+      // 26/04/2023
       IF !ValType(::oScript)="O" .OR. !::oScript:IsFunction(cMsg)
+         ::oScript:=COMPILA(::cScript,.T.)
+      ENDIF
+
+      // ? ::oScript:cProgram,"cProgram, 2",cMsg
+
+      IF !ValType(::oScript)="O" .OR. !::oScript:IsFunction(cMsg)
+
           COMPILA(::cScript,.T.)
           ::oScript:=GetScript()
-          MensajeErr("REQUIERE COMPILAR "+::cScript+CRLF+"Funcion "+cMsg,GetProce())
-          MensajeErr("FUNCTION "+cMsg+CRLF+GETPROCE(),"Funcion no existe: ")
+
+          IF !ValType(::oScript)="O" .OR. !::oScript:IsFunction(cMsg)
+
+// ViewArray(::oScript:aFunctions)
+
+             MensajeErr("REQUIERE COMPILAR "+::cScript+CRLF+"Funcion "+cMsg+CRLF+GetProce(),"Funcion no existe: ")
+          ENDIF
+
+          // MensajeErr("FUNCTION "+cMsg+CRLF+GETPROCE(),"Funcion no existe: ")
       ENDIF
 
       IF ValType(::oScript)="O" // busca la función en el Script
@@ -3956,6 +4058,21 @@ METHOD Cancel( lAsk , lFromValid )  CLASS DPEDIT
 
 // ? "AQUI CANCEL",GETPROCE()
 
+   IF !Empty(::cTable) .AND. ValType(::oTable)="O"
+
+      ::RECCOUNT() // 31/12/2023, Si cancela y no existe registro debe salir
+
+     // ? ::nRecCount,"Cant. Registros",::nOption,"opction",GETPROCE()
+
+      IF ::nRecCount=0
+
+        ::bValid:={||.T.} // 08/01/2024., evitar que se clave
+        // clave el sistema   ::CLOSE()
+        RETURN .T.
+      ENDIF
+
+   ENDIF
+
    ::ONCLOSE()
 
    IF ::lCancel  // Ya fué Aceptado Cancelar
@@ -4276,13 +4393,19 @@ RETURN aResp
 // Contador Ejecuta desde el Inicio de la Barra de Botones
 */
 METHOD RECCOUNT(lIni) CLASS DPEDIT
-   LOCAL oTable
-   LOCAL aCampos:=_VECTOR(::cOrderBy),cFieldX:=""
+   LOCAL oTable,oFont
+   LOCAL aCampos:=IF(Empty(::cOrderBy),{},_VECTOR(::cOrderBy)),cFieldX:=""
    LOCAL cDesde :="",cHasta:=""
-   LOCAL cWhere :=IF(Empty(::cScope),""," WHERE "+::cScope)
+   LOCAL cWhere :=nil // IF(Empty(::cScope),""," WHERE "+::cScope)
    LOCAL cOper  :="=",cSql
 
+   IF Empty(::oTable) // 31/12/2023
+      RETURN NIL
+   ENDIF
+
    ::cPrimary:=::oTable:cPrimary
+   cWhere :=IF(Empty(::cScope),""," WHERE "+::cScope)
+
 
    DEFAULT lIni:=.T. // Inicia y obtiene el primer y Ultimo Registro, Cuando se busca o lista el registro debe obtener la posicion del Registro
 
@@ -4319,17 +4442,27 @@ METHOD RECCOUNT(lIni) CLASS DPEDIT
 //? ::cActual,"::cActual",cFieldX,::cPrimary,GETPROCE()
 
      ::cActual:="CONCAT("+cFieldX+")"+cOper+"CONCAT("+::cActual+")"
-     ::nRecno:=COUNT(::oTable:cTable,::cActual)
-
+     // 29/10/2023 Agregar ::cScope
+     ::nRecno:=COUNT(::oTable:cTable,::cActual+IF(!Empty(::cScope)," AND "+::cScope,"")) //29/10/2023 + ::cScope
      ::lBof:=(::nRecno=1)
      ::lEof:=(::nRecno=::nRecCount)
 
- //? ::nRecno,::nRecCount,CLPCOPY(oDp:cSql)
+// ? ::nRecno,::nRecCount,CLPCOPY(oDp:cSql)
 
    ENDIF
 
    IF ValType(::oSayRecord)="O"
+
+     DEFINE FONT oFont NAME "Tahoma" SIZE 0, -10 BOLD
+
+     ::oSayRecord:SetColor(oDp:nClrYellowText,oDp:nClrYellow)
+     ::oSayRecord:SetFont(oFont)
      ::oSayRecord:Refresh(.T.)
+
+
+//? "aqui deben pintar el recno",getproce(),::oSayRecord:ClassName()
+
+
    ENDIF
 
 // ? ::GetWhereMax(::cOrderBy, "", .F.)
@@ -4550,6 +4683,11 @@ METHOD SAVE( lModifica ) CLASS DPEDIT
        // ::oTable:CreaRegIntRef() JN 8/2/2017 Suspendido genera incidencias
        ::oTable:lCreaRegIntRef:=.F. // Ya lo ejecutó
 
+    ENDIF
+
+    // 19/04/2023 Registros de Auditoría
+    IF !Empty(::cKeyAudita)
+       ::oTable:cKeyAudita:=::cKeyAudita
     ENDIF
 
     IF ::nOption=3
@@ -5573,14 +5711,15 @@ FUNCTION PutBar(oEdit) // CLASS DPEDIT
    oEdit:RECCOUNT(.T.)  // Obtiene la Cantidad de Registros
    oEdit:RECCOUNT(.F.)  // Obtiene la Posición del Registro Actual
 
-   DEFINE FONT oFont NAME GetSysFont() SIZE 0, -10 BOLD
+   DEFINE FONT oFont NAME "Tahoma" SIZE 0, -10 BOLD
 
    oBar:SetColor(NIL,oDp:nGris)
    Aeval(oBar:aControls,{|o|o:SetColor(NIL,oDp:nGris)})
 
    nAt:=60+(LEN(LSTR(oEdit:nRecCount))*10)
 
-   @ .8,0 SAY oEdit:oSayRecord PROMPT MI(" Registro ",613,"DPEDIT")+CRLF+" R:"+LSTR(oEdit:nRecNo)+"/"+LSTR(oEdit:nRecCount) PIXEL SIZE nAt,18*2 BORDER FONT oFont
+   @ .8,0 SAY oEdit:oSayRecord PROMPT MI(" Registro ",613,"DPEDIT")+CRLF+" R:"+LSTR(oEdit:nRecNo)+"/"+LSTR(oEdit:nRecCount) PIXEL SIZE nAt,18*2 BORDER FONT oFont OF oBar;
+              COLOR oDp:nClrYellowText,oDp:nClrYellow
 
    IF ValType(oEdit:oSayRecord)="O"
       oEdit:oSayRecord:Hide()
@@ -6412,7 +6551,7 @@ FUNCTION DpMsgSetTotal(nCant,cTitle,cText,lStop,lReset)
     //? "no existe",oDp:oMsgRun:ClassName()
     // EJECUTAR("MSGRUNVIEW",cTitle,cText,nCant,lStop,lReset)
 
-    MSGRUNVIEW(cTitle,cText,nData,lStop,lReset)
+    MSGRUNVIEW(cTitle,cText,nCant,lStop,lReset)
 
     //? "regreso",oDp:oMsgRun:ClassName()
 

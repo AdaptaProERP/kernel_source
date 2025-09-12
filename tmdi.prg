@@ -40,6 +40,7 @@ CLASS TMDI
     DATA cPostSave INIT "POSTSAVE"
     DATA cLoad     INIT "LOAD"
     DATA cOrderBy  INIT ""
+    DATA cTable    INIT "" // Nombre de la tabla del Browse necesario para definir colores con BRWSELCOLORFIELD
 
     DATA cMsgBar // Mensaje de Barra
 
@@ -61,7 +62,8 @@ CLASS TMDI
     DATA aScrollSize INIT {} // Datos del ASIZE
     DATA oFrmLink    INIT NIL // Formulario Enlace, si esta activo ejecutara Refrescar
 
-    DATA bLostFocus INIT NIL
+    DATA bLostFocus INIT {|| .T.} // 01/04/2024 NIL
+    DATA bGotFocus  INIT {|| .T.} // 01/04/2024
     DATA bValid     INIT {|| .T.}
 
     DATA lMsgError,lIsDef
@@ -174,6 +176,8 @@ CLASS TMDI
     METHOD ONCLOSE()            // jn 01/09/2023
     METHOD SetFunction(cProgram) // 9/02/2024
     METHOD Close() INLINE ::End()
+    METHOD BTNSETCOLOR(nOption) INLINE EJECUTAR("BRWMENUCOLORSET",Self,nOption) // EJECUTADO DESDE BRBTNMENUCOLOR, BOTON COLOR
+
     METHOD HandleEvent( nMsg, nWParam, nLParam ) EXTERN ;
                              WndHandleEvent( Self, nMsg, nWParam, nLParam )
 
@@ -250,7 +254,7 @@ RETURN .T.
 /*
 // Asume por Defecto las Opciones Básicas del Formulario
 */
-METHOD SetDefault() CLASS TMDI
+METHOD   SetDefault() CLASS TMDI
 
   // Estos son Procedi  mientos Script
   ::cCancel  :="CANCEL"
@@ -399,6 +403,10 @@ METHOD GotFocus(lAuto) CLASS TMDI
 
    AEVAL(::aBrwFocus,{|a,n| EJECUTAR("BRWGOTFOCUS",a,SELF)})
 
+   IF ValType(::bGotFocus)="B"
+      EVAL(::bGotFocus) // personalizable
+   ENDIF
+
 RETURN NIL
 
 
@@ -472,6 +480,10 @@ METHOD LostFocus()
    ENDIF
 
    AEVAL(::aBrwFocus,{|a,n| EJECUTAR("BRWLOSTFOCUS",a)})
+
+   IF ValType(::bLostFocus)="B"
+      EVAL(::bLostFocus) // personalizable
+   ENDIF
 
 RETURN NIL
 
@@ -753,7 +765,7 @@ METHOD OnError( uValue,nError,nPar3,nPar4,nPar5,nPar6,nPar7,nPar8,nPar9,nPar10,n
 
     IF ValType(::oFrom)="O" .AND. !::oScript:Isfunction(cMsg)
 
-? "AQUI BUSCAMOS LA FUNCION EN LA PPAL, LUEGO EN EL SIGUIENTE",::oForm
+// ? "AQUI BUSCAMOS LA FUNCION EN LA PPAL, LUEGO EN EL SIGUIENTE",::oForm
 
        IF !::oFrom:Isfunction(cMsg)
 
@@ -943,6 +955,29 @@ FUNCTION BMPGETBTN(oBar,oFont,nAncho)
   ENDIF
 
 RETURN oBtn
+
+/*
+// Restaurar FONT en la barra de botones 16/08/2025
+*/
+
+FUNCTION MDIBARGOTFOCUS(oFrm,oBar,oFont)
+   LOCAL I,oBtn
+
+   DEFAULT oBar :=oFrm:oBar,;
+           oFont:=oFrm:oFontBtn
+
+   FOR I=1 TO LEN(oBar:aControls)
+
+      oBtn:=oBar:aControls[I]
+
+      IF "BTN"$oBtn:ClassName()
+         oBtn:SETFONT(oFont)
+      ENDIF
+
+   NEXT I
+
+
+RETURN .T.
 
 /*
 FUNCTION SETBTNGRPACTION(oMdiCli,cAction)
